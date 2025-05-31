@@ -1,4 +1,5 @@
 services:
+  # TODO: replace with https://github.com/etspaceman/kinesis-mock
   clickhouse:
     image: clickhouse/clickhouse-server:latest-alpine
     ports:

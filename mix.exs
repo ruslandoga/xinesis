@@ -5,6 +5,7 @@ defmodule Kinesis.MixProject do
     [
       app: :kinesis,
       version: "0.1.0",
+      # TODO decide which versions to support
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps()
