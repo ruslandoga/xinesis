@@ -1,7 +1,7 @@
 defmodule KinesisTest do
   use ExUnit.Case
 
-  test "some requests" do
+  test "basic flow" do
     {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
 
     assert {:ok, conn, resp} =

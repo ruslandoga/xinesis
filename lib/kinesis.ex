@@ -32,7 +32,7 @@ defmodule Kinesis do
       ]
 
       json = JSON.encode_to_iodata!(payload)
-      request("kinesis", conn, "POST", "/", headers, json, opts)
+      request("kinesis", conn, headers, json, opts)
     end
   end
 
@@ -59,27 +59,28 @@ defmodule Kinesis do
       ]
 
       json = JSON.encode_to_iodata!(payload)
-      request("dynamodb", conn, "POST", "/", headers, json, opts)
+      request("dynamodb", conn, headers, json, opts)
     end
   end
 
-  defp request(service, conn, method, path, headers, body, opts) do
-    with {:ok, conn, _ref} <- send_request(service, conn, method, path, headers, body) do
+  defp request(service, conn, headers, body, opts) do
+    with {:ok, conn, _ref} <- send_request(service, conn, headers, body) do
       receive_response(conn, timeout(conn, opts))
     end
   end
 
-  @dialyzer {:no_improper_lists, send_request: 6}
-  defp send_request(service, conn, method, path, headers, body) do
+  @dialyzer {:no_improper_lists, send_request: 4}
+  defp send_request(service, conn, headers, body) do
     # TODO
     access_key_id = "test"
     # TODO
     secret_access_key = "test"
     # TODO
     host = "localhost"
+    # TODO
     region = "us-east-1"
-    utc_now = DateTime.utc_now(:second)
 
+    utc_now = DateTime.utc_now(:second)
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
     amz_short_date = String.slice(amz_date, 0, 8)
     scope = IO.iodata_to_binary([amz_short_date, ?/, region, ?/, service, ?/, "aws4_request"])
@@ -96,17 +97,11 @@ defmodule Kinesis do
       |> IO.iodata_to_binary()
 
     canonical_request = [
-      method,
-      ?\n,
-      path,
-      ?\n,
-      _query = "",
-      ?\n,
+      "POST\n/\n\n",
       Enum.map(headers, fn {k, v} -> [k, ?:, v, ?\n] end),
       ?\n,
       signed_headers,
-      ?\n,
-      "UNSIGNED-PAYLOAD"
+      "\nUNSIGNED-PAYLOAD"
     ]
 
     string_to_sign = [
@@ -135,7 +130,7 @@ defmodule Kinesis do
 
     headers = [{"authorization", authorization} | headers]
 
-    case HTTP.request(conn, method, path, headers, body) do
+    case HTTP.request(conn, "POST", "/", headers, body) do
       {:ok, _conn, _ref} = ok -> ok
       {:error, conn, reason} -> {:disconnect, reason, conn}
     end
