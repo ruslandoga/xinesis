@@ -17,6 +17,7 @@ defmodule Kinesis do
   end
 
   def list_shards(conn) do
+    # {:done, ...} and {:more, ...}
     request(
       conn,
       "POST",
@@ -25,7 +26,21 @@ defmodule Kinesis do
         {"x-amz-target", "Kinesis_20131202.ListStreams"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
-      "{}",
+      JSON.encode_to_iodata!(%{}),
+      []
+    )
+  end
+
+  def describe_stream(conn, name) when is_binary(name) do
+    request(
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "Kinesis_20131202.DescribeStream"},
+        {"content-type", "application/x-amz-json-1.1"}
+      ],
+      JSON.encode_to_iodata!(%{"StreamName" => name}),
       []
     )
   end
