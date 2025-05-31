@@ -1,10 +1,25 @@
 defmodule Kinesis do
   @moduledoc """
-  Documentation for `Kinesis`.
+  Basic AWS Kinesis client.
   """
 
+  require Logger
   alias Mint.HTTP1, as: HTTP
 
+  defmodule Error do
+    @moduledoc "TODO"
+    defexception [:type, :message]
+
+    def message(%{type: nil, message: message}) do
+      message
+    end
+
+    def message(%{type: type, message: message}) do
+      "#{type}: #{message}"
+    end
+  end
+
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/Welcome.html
   kinesis_actions = [
     "create_stream",
     "delete_stream",
@@ -22,10 +37,8 @@ defmodule Kinesis do
   for action <- kinesis_actions do
     aws_action = Macro.camelize(action)
 
-    @doc """
-    See https://docs.aws.amazon.com/kinesis/latest/APIReference/API_#{aws_action}.html
-    """
-    def unquote(:"kinesis_#{action}")(conn, payload, opts \\ []) do
+    @doc false
+    def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
       headers = [
         {"x-amz-target", unquote("Kinesis_20131202.#{aws_action}")},
         {"content-type", "application/x-amz-json-1.1"}
@@ -36,6 +49,7 @@ defmodule Kinesis do
     end
   end
 
+  # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations_Amazon_DynamoDB.html
   dynamodb_actions = [
     "list_tables",
     "create_table",
@@ -49,9 +63,7 @@ defmodule Kinesis do
   for action <- dynamodb_actions do
     aws_action = Macro.camelize(action)
 
-    @doc """
-    See https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_#{aws_action}.html
-    """
+    @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
       headers = [
         {"x-amz-target", unquote("DynamoDB_20120810.#{aws_action}")},
@@ -63,6 +75,97 @@ defmodule Kinesis do
     end
   end
 
+  def create_lease(conn, table, shard, owner, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Item" => %{
+        "shard_id" => %{"S" => shard},
+        "lease_owner" => %{"S" => owner},
+        "lease_count" => %{"N" => "1"},
+        "completed" => %{"BOOL" => false}
+      },
+      "ConditionExpression" => "attribute_not_exists(shard_id)"
+    }
+
+    dynamodb_put_item(conn, payload, opts)
+  end
+
+  def get_lease(conn, table, shard, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Key" => %{"shard_id" => %{"S" => shard}}
+    }
+
+    dynamodb_get_item(conn, payload, opts)
+  end
+
+  def renew_lease(conn, table, shard, owner, count, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Key" => %{"shard_id" => %{"S" => shard}},
+      "UpdateExpression" => "SET lease_count = lease_count + :val",
+      "ConditionExpression" => "lease_owner = :owner AND lease_count = :count",
+      "ExpressionAttributeValues" => %{
+        ":val" => %{"N" => "1"},
+        ":owner" => %{"S" => owner},
+        ":count" => %{"N" => Integer.to_string(count)}
+      },
+      "ReturnValues" => "UPDATED_NEW"
+    }
+
+    dynamodb_update_item(conn, payload, opts)
+  end
+
+  def take_lease(conn, table, shard, new_owner, count, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Key" => %{"shard_id" => %{"S" => shard}},
+      "UpdateExpression" => "SET lease_owner = :new_owner, lease_count = lease_count + :val",
+      "ConditionExpression" => "lease_count = :count AND lease_owner <> :new_owner",
+      "ExpressionAttributeValues" => %{
+        ":new_owner" => %{"S" => new_owner},
+        ":val" => %{"N" => "1"},
+        ":count" => %{"N" => Integer.to_string(count)}
+      },
+      "ReturnValues" => "UPDATED_NEW"
+    }
+
+    dynamodb_update_item(conn, payload, opts)
+  end
+
+  def update_checkpoint(conn, table, shard, owner, checkpoint, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Key" => %{"shard_id" => %{"S" => shard}},
+      "UpdateExpression" => "SET checkpoint = :checkpoint",
+      "ConditionExpression" => "lease_owner = :owner",
+      "ExpressionAttributeValues" => %{
+        ":checkpoint" => %{"S" => checkpoint},
+        ":owner" => %{"S" => owner}
+      },
+      "ReturnValues" => "UPDATED_NEW"
+    }
+
+    dynamodb_update_item(conn, payload, opts)
+  end
+
+  def mark_shard_completed(conn, table, shard, owner, opts \\ []) do
+    payload = %{
+      "TableName" => table,
+      "Key" => %{"shard_id" => %{"S" => shard}},
+      "UpdateExpression" => "SET completed = :completed",
+      "ConditionExpression" => "lease_owner = :owner",
+      "ExpressionAttributeValues" => %{
+        ":completed" => %{"BOOL" => true},
+        ":owner" => %{"S" => owner}
+      },
+      "ReturnValues" => "UPDATED_NEW"
+    }
+
+    dynamodb_update_item(conn, payload, opts)
+  end
+
+  # TODO retries, exponential backoff, etc. or should it be handled by the caller (gen_statem)?
   defp request(service, conn, headers, body, opts) do
     with {:ok, conn, _ref} <- send_request(service, conn, headers, body) do
       receive_response(conn, timeout(conn, opts))
@@ -147,14 +250,33 @@ defmodule Kinesis do
             if is_binary(content_type) and String.contains?(content_type, "json") do
               JSON.decode!(IO.iodata_to_binary(rest))
             else
+              # TODO
               responses
             end
 
           {:ok, conn, response}
 
-        [status, headers | data] ->
-          message = IO.iodata_to_binary(data)
-          {:error, {status, headers, message}, conn}
+        # TODO
+        [_status, headers | data] ->
+          content_type = :proplists.get_value("content-type", headers, nil)
+          error_type = :proplists.get_value("x-amzn-errortype", headers, nil)
+
+          # TODO
+          error =
+            if is_binary(content_type) and String.contains?(content_type, "json") do
+              %{"message" => message} =
+                json =
+                JSON.decode!(IO.iodata_to_binary(data))
+
+              Error.exception(
+                type: json["__type"] || error_type,
+                message: message
+              )
+            else
+              Error.exception(type: error_type, message: IO.iodata_to_binary(data))
+            end
+
+          {:error, error, conn}
       end
     end
   end
@@ -182,6 +304,8 @@ defmodule Kinesis do
   defp handle_responses([{:done, _ref}], acc), do: {:ok, :lists.reverse(acc)}
   defp handle_responses([], acc), do: {:more, acc}
 
+  # TODO also consider connect timeout
+  # TODO
   defp timeout(_conn, _opts), do: :timer.seconds(5)
 
   defp put_header(headers, key, value), do: [{key, value} | List.keydelete(headers, key, 1)]

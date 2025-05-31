@@ -22,7 +22,8 @@ defmodule Kinesis.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:mint, "~> 1.7"}
+      {:mint, "~> 1.7"},
+      {:telemetry, "~> 1.3"}
     ]
   end
 end
