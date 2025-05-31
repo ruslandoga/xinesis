@@ -16,8 +16,8 @@ defmodule Kinesis do
     {:ok, _conn} = HTTP.connect(:http, "localhost", 4566)
   end
 
-  def list_streams(conn) do
-    # {:done, ...} and {:more, ...}
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
+  def list_streams(conn, payload) do
     request(
       conn,
       "POST",
@@ -26,12 +26,13 @@ defmodule Kinesis do
         {"x-amz-target", "Kinesis_20131202.ListStreams"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
-      JSON.encode_to_iodata!(%{}),
+      JSON.encode_to_iodata!(payload),
       []
     )
   end
 
-  def describe_stream(conn, stream_name) when is_binary(stream_name) do
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStream.html
+  def describe_stream(conn, payload) do
     request(
       conn,
       "POST",
@@ -40,25 +41,34 @@ defmodule Kinesis do
         {"x-amz-target", "Kinesis_20131202.DescribeStream"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
-      JSON.encode_to_iodata!(%{"StreamName" => stream_name}),
+      JSON.encode_to_iodata!(payload),
       []
     )
   end
 
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
-  def get_shard_iterator(conn, stream_name, shard_id, payload) do
-    payload =
-      Map.merge(
-        %{"ShardId" => shard_id, "StreamName" => stream_name},
-        payload
-      )
-
+  def get_shard_iterator(conn, payload) do
     request(
       conn,
       "POST",
       "/",
       [
         {"x-amz-target", "Kinesis_20131202.GetShardIterator"},
+        {"content-type", "application/x-amz-json-1.1"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
+  def get_records(conn, payload) do
+    request(
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "Kinesis_20131202.GetRecords"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
       JSON.encode_to_iodata!(payload),
@@ -173,8 +183,18 @@ defmodule Kinesis do
   defp receive_response(conn, timeout) do
     with {:ok, conn, responses} <- recv_all(conn, [], timeout) do
       case responses do
-        [200, _headers | _rest] ->
-          {:ok, conn, responses}
+        [200, headers | rest] ->
+          content_type = :proplists.get_value("content-type", headers, nil)
+
+          # TODO
+          response =
+            if is_binary(content_type) and String.contains?(content_type, "json") do
+              JSON.decode!(IO.iodata_to_binary(rest))
+            else
+              responses
+            end
+
+          {:ok, conn, response}
 
         [status, headers | data] ->
           message = IO.iodata_to_binary(data)

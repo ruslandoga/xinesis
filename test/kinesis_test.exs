@@ -4,14 +4,15 @@ defmodule KinesisTest do
   test "some requests" do
     {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
 
-    assert {:ok, conn, [200, _headers, body]} = Kinesis.list_streams(conn)
+    assert {:ok, conn, resp} = Kinesis.list_streams(conn, %{})
 
-    assert JSON.decode!(body) == %{
+    assert %{
              "HasMoreStreams" => false,
              "StreamNames" => ["my-local-stream"]
-           }
+           } = resp
 
-    assert {:ok, conn, [200, _headers, body]} = Kinesis.describe_stream(conn, "my-local-stream")
+    assert {:ok, conn, response} =
+             Kinesis.describe_stream(conn, %{"StreamName" => "my-local-stream"})
 
     assert %{
              "StreamDescription" => %{
@@ -37,22 +38,30 @@ defmodule KinesisTest do
                "StreamName" => "my-local-stream",
                "StreamStatus" => "ACTIVE"
              }
-           } = JSON.decode!(body)
+           } = response
 
-    assert {:ok, conn, [200, _headers, body]} =
+    assert {:ok, conn, resp} =
              Kinesis.get_shard_iterator(
                conn,
-               "my-local-stream",
-               "shardId-000000000000",
                %{
+                 "StreamName" => "my-local-stream",
+                 "ShardId" => "shardId-000000000000",
                  "ShardIteratorType" => "AT_SEQUENCE_NUMBER",
                  "StartingSequenceNumber" => starting_sequence_number
                }
              )
 
     assert %{
-             "ShardIterator" => _shard_iterator
-           } = JSON.decode!(body)
+             "ShardIterator" => shard_iterator
+           } = resp
+
+    assert {:ok, conn, resp} = Kinesis.get_records(conn, %{"ShardIterator" => shard_iterator})
+
+    assert %{
+             "MillisBehindLatest" => 0,
+             "NextShardIterator" => _next,
+             "Records" => []
+           } = resp
 
     # just to avoid warnings for now
     _conn = conn
