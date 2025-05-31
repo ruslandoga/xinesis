@@ -16,7 +16,7 @@ defmodule Kinesis do
     {:ok, _conn} = HTTP.connect(:http, "localhost", 4566)
   end
 
-  def list_shards(conn) do
+  def list_streams(conn) do
     # {:done, ...} and {:more, ...}
     request(
       conn,
@@ -31,7 +31,7 @@ defmodule Kinesis do
     )
   end
 
-  def describe_stream(conn, name) when is_binary(name) do
+  def describe_stream(conn, stream_name) when is_binary(stream_name) do
     request(
       conn,
       "POST",
@@ -40,7 +40,26 @@ defmodule Kinesis do
         {"x-amz-target", "Kinesis_20131202.DescribeStream"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
-      JSON.encode_to_iodata!(%{"StreamName" => name}),
+      JSON.encode_to_iodata!(%{"StreamName" => stream_name}),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
+  def get_shard_iterator(conn, stream_name, shard_id, shard_iterator_type) do
+    request(
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "Kinesis_20131202.GetShardIterator"},
+        {"content-type", "application/x-amz-json-1.1"}
+      ],
+      JSON.encode_to_iodata!(%{
+        "ShardId" => shard_id,
+        "ShardIteratorType" => shard_iterator_type,
+        "StreamName" => stream_name
+      }),
       []
     )
   end
