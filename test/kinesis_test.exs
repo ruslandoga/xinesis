@@ -228,7 +228,7 @@ defmodule KinesisTest do
   describe "shard splitting & merging" do
     setup [:create_stream, :await_stream_active, :create_table]
 
-    test "shard split", %{conn: conn, stream_name: stream_name} do
+    test "basic flow", %{conn: conn, stream_name: stream_name} = ctx do
       {:ok, conn, %{"FailedRecordCount" => 0}} =
         Kinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
@@ -265,6 +265,20 @@ defmodule KinesisTest do
                    Integer.to_string(div(starting_hash_key + ending_hash_key, 2))
                })
 
+      :ok = await_stream_active(ctx)
+
+      {:ok, conn, %{"FailedRecordCount" => 0}} =
+        Kinesis.api_put_records(conn, %{
+          "StreamName" => stream_name,
+          "Records" =>
+            Enum.map(1..10, fn i ->
+              %{
+                "Data" => Base.encode64("data-#{i}"),
+                "PartitionKey" => "key-#{i}"
+              }
+            end)
+        })
+
       assert {:ok, conn,
               %{
                 "Shards" => [
@@ -294,6 +308,30 @@ defmodule KinesisTest do
                 ]
               }} = Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
+      assert {:ok, conn, %{}} =
+               Kinesis.api_merge_shards(conn, %{
+                 "StreamName" => stream_name,
+                 "ShardToMerge" => "shardId-000000000001",
+                 "AdjacentShardToMerge" => "shardId-000000000002"
+               })
+
+      :ok = await_stream_active(ctx)
+
+      {:ok, conn, %{"FailedRecordCount" => 0}} =
+        Kinesis.api_put_records(conn, %{
+          "StreamName" => stream_name,
+          "Records" =>
+            Enum.map(1..10, fn i ->
+              %{
+                "Data" => Base.encode64("data-#{i}"),
+                "PartitionKey" => "key-#{i}"
+              }
+            end)
+        })
+
+      assert {:ok, conn, %{"Shards" => [_, _, _, _]}} =
+               Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
+
       assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
                Kinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
@@ -301,13 +339,7 @@ defmodule KinesisTest do
                  "ShardIteratorType" => "TRIM_HORIZON"
                })
 
-      assert {:ok, conn, %{"NextShardIterator" => shard_iterator, "Records" => [_ | _]}} =
-               Kinesis.api_get_records(conn, %{
-                 "Limit" => 5,
-                 "ShardIterator" => shard_iterator
-               })
-
-      assert {:ok, _conn,
+      assert {:ok, conn,
               %{
                 "ChildShards" => [
                   %{"ShardId" => "shardId-000000000001"},
@@ -316,13 +348,75 @@ defmodule KinesisTest do
                 "Records" => [_ | _]
               }} =
                Kinesis.api_get_records(conn, %{
-                 "Limit" => 5,
+                 "Limit" => 10,
                  "ShardIterator" => shard_iterator
                })
-    end
 
-    @tag :skip
-    test "shard merge"
+      assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_1}} =
+               Kinesis.api_get_shard_iterator(conn, %{
+                 "StreamName" => stream_name,
+                 "ShardId" => "shardId-000000000001",
+                 "ShardIteratorType" => "TRIM_HORIZON"
+               })
+
+      assert {:ok, conn,
+              %{
+                "ChildShards" => [
+                  %{
+                    "HashKeyRange" => %{
+                      "EndingHashKey" => "340282366920938463463374607431768211455",
+                      "StartingHashKey" => "0"
+                    },
+                    "ParentShards" => ["shardId-000000000001", "shardId-000000000002"],
+                    "ShardId" => "shardId-000000000003"
+                  }
+                ],
+                "Records" => [_ | _]
+              }} =
+               Kinesis.api_get_records(conn, %{
+                 "Limit" => 10,
+                 "ShardIterator" => shard_iterator_child_1
+               })
+
+      assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_2}} =
+               Kinesis.api_get_shard_iterator(conn, %{
+                 "StreamName" => stream_name,
+                 "ShardId" => "shardId-000000000002",
+                 "ShardIteratorType" => "TRIM_HORIZON"
+               })
+
+      assert {:ok, conn,
+              %{
+                "ChildShards" => [
+                  %{
+                    "HashKeyRange" => %{
+                      "EndingHashKey" => "340282366920938463463374607431768211455",
+                      "StartingHashKey" => "0"
+                    },
+                    "ParentShards" => ["shardId-000000000001", "shardId-000000000002"],
+                    "ShardId" => "shardId-000000000003"
+                  }
+                ],
+                "Records" => [_ | _]
+              }} =
+               Kinesis.api_get_records(conn, %{
+                 "Limit" => 10,
+                 "ShardIterator" => shard_iterator_child_2
+               })
+
+      assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_3}} =
+               Kinesis.api_get_shard_iterator(conn, %{
+                 "StreamName" => stream_name,
+                 "ShardId" => "shardId-000000000003",
+                 "ShardIteratorType" => "TRIM_HORIZON"
+               })
+
+      assert {:ok, _conn, %{"NextShardIterator" => _, "Records" => [_ | _]}} =
+               Kinesis.api_get_records(conn, %{
+                 "Limit" => 10,
+                 "ShardIterator" => shard_iterator_child_3
+               })
+    end
   end
 
   describe "error handling and edge cases" do

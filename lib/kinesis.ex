@@ -306,7 +306,7 @@ defmodule Kinesis do
 
   # TODO also consider connect timeout
   # TODO
-  defp timeout(_conn, _opts), do: :timer.seconds(1)
+  defp timeout(_conn, _opts), do: :timer.seconds(5)
 
   defp put_header(headers, key, value), do: [{key, value} | List.keydelete(headers, key, 1)]
   defp hex(value), do: Base.encode16(value, case: :lower)
