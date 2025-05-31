@@ -3,98 +3,84 @@ defmodule Kinesis do
   Documentation for `Kinesis`.
   """
 
-  use GenServer
   alias Mint.HTTP1, as: HTTP
 
-  def start_link(opts) do
-    {gen_opts, opts} = Keyword.split(opts, [:name])
-    GenServer.start_link(__MODULE__, opts, gen_opts)
-  end
+  kinesis_actions = [
+    "create_stream",
+    "delete_stream",
+    "list_streams",
+    "list_shards",
+    "merge_shards",
+    "put_record",
+    "put_records",
+    "describe_stream",
+    "get_shard_iterator",
+    "get_records",
+    "split_shard"
+  ]
 
-  @impl true
-  def init(_opts) do
-    {:ok, _conn} = HTTP.connect(:http, "localhost", 4566)
-  end
+  for action <- kinesis_actions do
+    aws_action = Macro.camelize(action)
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
-  def list_streams(conn, payload) do
-    request(
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.ListStreams"},
+    @doc """
+    See https://docs.aws.amazon.com/kinesis/latest/APIReference/API_#{aws_action}.html
+    """
+    def unquote(:"kinesis_#{action}")(conn, payload, opts \\ []) do
+      headers = [
+        {"x-amz-target", unquote("Kinesis_20131202.#{aws_action}")},
         {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
+      ]
+
+      json = JSON.encode_to_iodata!(payload)
+      request("kinesis", conn, headers, json, opts)
+    end
   end
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStream.html
-  def describe_stream(conn, payload) do
-    request(
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.DescribeStream"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
+  dynamodb_actions = [
+    "list_tables",
+    "create_table",
+    "delete_table",
+    "describe_table",
+    "put_item",
+    "get_item",
+    "update_item"
+  ]
+
+  for action <- dynamodb_actions do
+    aws_action = Macro.camelize(action)
+
+    @doc """
+    See https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_#{aws_action}.html
+    """
+    def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
+      headers = [
+        {"x-amz-target", unquote("DynamoDB_20120810.#{aws_action}")},
+        {"content-type", "application/x-amz-json-1.0"}
+      ]
+
+      json = JSON.encode_to_iodata!(payload)
+      request("dynamodb", conn, headers, json, opts)
+    end
   end
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
-  def get_shard_iterator(conn, payload) do
-    request(
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.GetShardIterator"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
-  def get_records(conn, payload) do
-    request(
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.GetRecords"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  defp request(conn, method, path, headers, body, opts) do
-    with {:ok, conn, _ref} <- send_request(conn, method, path, headers, body) do
+  defp request(service, conn, headers, body, opts) do
+    with {:ok, conn, _ref} <- send_request(service, conn, headers, body) do
       receive_response(conn, timeout(conn, opts))
     end
   end
 
-  defp send_request(conn, method, path, headers, body) do
+  @dialyzer {:no_improper_lists, send_request: 4}
+  defp send_request(service, conn, headers, body) do
+    # TODO
     access_key_id = "test"
+    # TODO
     secret_access_key = "test"
-
+    # TODO
     host = "localhost"
-    path = path
-    query = %{}
+    # TODO
     region = "us-east-1"
-    method = method
-    headers = headers
-    service = "kinesis"
-    utc_now = DateTime.utc_now(:second)
 
+    utc_now = DateTime.utc_now(:second)
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
     amz_short_date = String.slice(amz_date, 0, 8)
     scope = IO.iodata_to_binary([amz_short_date, ?/, region, ?/, service, ?/, "aws4_request"])
@@ -104,48 +90,18 @@ defmodule Kinesis do
       |> put_header("host", host)
       |> put_header("x-amz-date", amz_date)
 
-    # |> Enum.sort_by(fn {k, _} -> k end)
-
-    # path =
-    #   path
-    #   |> String.split("/", trim: true)
-    #   |> Enum.map(&:uri_string.quote/1)
-    #   |> Enum.join("/")
-
     signed_headers =
       headers
       |> Enum.map(fn {k, _} -> k end)
       |> Enum.intersperse(?;)
       |> IO.iodata_to_binary()
 
-    # query =
-    #   Map.merge(
-    #     %{
-    #       "X-Amz-Algorithm" => "AWS4-HMAC-SHA256",
-    #       "X-Amz-Credential" => "#{access_key_id}/#{scope}",
-    #       "X-Amz-Date" => amz_date,
-    #       "X-Amz-SignedHeaders" => signed_headers
-    #     },
-    #     query
-    #   )
-
-    query =
-      query
-      |> Enum.sort_by(fn {k, _} -> k end)
-      |> URI.encode_query()
-
     canonical_request = [
-      method,
-      ?\n,
-      path,
-      ?\n,
-      query,
-      ?\n,
+      "POST\n/\n\n",
       Enum.map(headers, fn {k, v} -> [k, ?:, v, ?\n] end),
       ?\n,
       signed_headers,
-      ?\n,
-      "UNSIGNED-PAYLOAD"
+      "\nUNSIGNED-PAYLOAD"
     ]
 
     string_to_sign = [
@@ -174,7 +130,7 @@ defmodule Kinesis do
 
     headers = [{"authorization", authorization} | headers]
 
-    case HTTP.request(conn, method, path, headers, body) do
+    case HTTP.request(conn, "POST", "/", headers, body) do
       {:ok, _conn, _ref} = ok -> ok
       {:error, conn, reason} -> {:disconnect, reason, conn}
     end
