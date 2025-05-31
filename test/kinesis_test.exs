@@ -26,7 +26,7 @@ defmodule KinesisTest do
                      "StartingHashKey" => "0"
                    },
                    "SequenceNumberRange" => %{
-                     "StartingSequenceNumber" => _starting_sequence_number
+                     "StartingSequenceNumber" => starting_sequence_number
                    },
                    "ShardId" => "shardId-000000000000"
                  }
@@ -44,7 +44,10 @@ defmodule KinesisTest do
                conn,
                "my-local-stream",
                "shardId-000000000000",
-               "LATEST"
+               %{
+                 "ShardIteratorType" => "AT_SEQUENCE_NUMBER",
+                 "StartingSequenceNumber" => starting_sequence_number
+               }
              )
 
     assert %{

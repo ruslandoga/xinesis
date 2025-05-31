@@ -46,7 +46,13 @@ defmodule Kinesis do
   end
 
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
-  def get_shard_iterator(conn, stream_name, shard_id, shard_iterator_type) do
+  def get_shard_iterator(conn, stream_name, shard_id, payload) do
+    payload =
+      Map.merge(
+        %{"ShardId" => shard_id, "StreamName" => stream_name},
+        payload
+      )
+
     request(
       conn,
       "POST",
@@ -55,11 +61,7 @@ defmodule Kinesis do
         {"x-amz-target", "Kinesis_20131202.GetShardIterator"},
         {"content-type", "application/x-amz-json-1.1"}
       ],
-      JSON.encode_to_iodata!(%{
-        "ShardId" => shard_id,
-        "ShardIteratorType" => shard_iterator_type,
-        "StreamName" => stream_name
-      }),
+      JSON.encode_to_iodata!(payload),
       []
     )
   end
