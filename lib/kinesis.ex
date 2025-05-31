@@ -16,9 +16,42 @@ defmodule Kinesis do
     {:ok, _conn} = HTTP.connect(:http, "localhost", 4566)
   end
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
-  def list_streams(conn, payload) do
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_CreateStream.html
+  def kinesis_create_stream(conn, payload) do
     request(
+      "kinesis",
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "Kinesis_20131202.CreateStream"},
+        {"content-type", "application/x-amz-json-1.1"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DeleteStream.html
+  def kinesis_delete_stream(conn, payload) do
+    request(
+      "kinesis",
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "Kinesis_20131202.DeleteStream"},
+        {"content-type", "application/x-amz-json-1.1"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
+  def kinesis_list_streams(conn, payload) do
+    request(
+      "kinesis",
       conn,
       "POST",
       "/",
@@ -32,8 +65,9 @@ defmodule Kinesis do
   end
 
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStream.html
-  def describe_stream(conn, payload) do
+  def kinesis_describe_stream(conn, payload) do
     request(
+      "kinesis",
       conn,
       "POST",
       "/",
@@ -47,8 +81,9 @@ defmodule Kinesis do
   end
 
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
-  def get_shard_iterator(conn, payload) do
+  def kinesis_get_shard_iterator(conn, payload) do
     request(
+      "kinesis",
       conn,
       "POST",
       "/",
@@ -62,8 +97,9 @@ defmodule Kinesis do
   end
 
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
-  def get_records(conn, payload) do
+  def kinesis_get_records(conn, payload) do
     request(
+      "kinesis",
       conn,
       "POST",
       "/",
@@ -76,23 +112,66 @@ defmodule Kinesis do
     )
   end
 
-  defp request(conn, method, path, headers, body, opts) do
-    with {:ok, conn, _ref} <- send_request(conn, method, path, headers, body) do
+  def dynamodb_list_tables(conn, payload) do
+    request(
+      "dynamodb",
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "DynamoDB_20120810.ListTables"},
+        {"content-type", "application/x-amz-json-1.0"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateTable.html
+  def dynamodb_create_table(conn, payload) do
+    request(
+      "dynamodb",
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "DynamoDB_20120810.CreateTable"},
+        {"content-type", "application/x-amz-json-1.0"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DeleteTable.html
+  def dynamodb_delete_table(conn, payload) do
+    request(
+      "dynamodb",
+      conn,
+      "POST",
+      "/",
+      [
+        {"x-amz-target", "DynamoDB_20120810.DeleteTable"},
+        {"content-type", "application/x-amz-json-1.0"}
+      ],
+      JSON.encode_to_iodata!(payload),
+      []
+    )
+  end
+
+  defp request(service, conn, method, path, headers, body, opts) do
+    with {:ok, conn, _ref} <- send_request(service, conn, method, path, headers, body) do
       receive_response(conn, timeout(conn, opts))
     end
   end
 
-  defp send_request(conn, method, path, headers, body) do
+  @dialyzer {:no_improper_lists, send_request: 6}
+  defp send_request(service, conn, method, path, headers, body) do
     access_key_id = "test"
     secret_access_key = "test"
 
     host = "localhost"
-    path = path
-    query = %{}
     region = "us-east-1"
-    method = method
-    headers = headers
-    service = "kinesis"
     utc_now = DateTime.utc_now(:second)
 
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
@@ -104,42 +183,18 @@ defmodule Kinesis do
       |> put_header("host", host)
       |> put_header("x-amz-date", amz_date)
 
-    # |> Enum.sort_by(fn {k, _} -> k end)
-
-    # path =
-    #   path
-    #   |> String.split("/", trim: true)
-    #   |> Enum.map(&:uri_string.quote/1)
-    #   |> Enum.join("/")
-
     signed_headers =
       headers
       |> Enum.map(fn {k, _} -> k end)
       |> Enum.intersperse(?;)
       |> IO.iodata_to_binary()
 
-    # query =
-    #   Map.merge(
-    #     %{
-    #       "X-Amz-Algorithm" => "AWS4-HMAC-SHA256",
-    #       "X-Amz-Credential" => "#{access_key_id}/#{scope}",
-    #       "X-Amz-Date" => amz_date,
-    #       "X-Amz-SignedHeaders" => signed_headers
-    #     },
-    #     query
-    #   )
-
-    query =
-      query
-      |> Enum.sort_by(fn {k, _} -> k end)
-      |> URI.encode_query()
-
     canonical_request = [
       method,
       ?\n,
       path,
       ?\n,
-      query,
+      _query = "",
       ?\n,
       Enum.map(headers, fn {k, v} -> [k, ?:, v, ?\n] end),
       ?\n,

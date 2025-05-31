@@ -49,11 +49,7 @@ jobs:
 
       - uses: LocalStack/setup-localstack@v0.2.2
         with:
-          image-tag: "latest"
-          install-awslocal: "true"
-
-      - run: awslocal kinesis create-stream --stream-name my-local-stream --shard-count 1
-      - run: awslocal dynamodb create-table --table-name my-local-table --attribute-definitions AttributeName=id,AttributeType=S --key-schema AttributeName=id,KeyType=HASH --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+          image-tag: latest
 
       - run: mix test --include slow
 
