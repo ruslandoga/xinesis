@@ -1,0 +1,70 @@
+name: mix
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "42 9 * * *"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      MIX_ENV: test
+
+    strategy:
+      matrix:
+        # TODO decide which versions to support
+        # elixir: [1.18, 1.17, 1.16]
+        # otp: [27, 26]
+        include:
+          # TODO: https://github.com/erlef/setup-beam/issues/329
+          - elixir: 1.18-otp-27
+            otp: 28
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ steps.beam.outputs.elixir-version }}-${{ github.head_ref || github.ref }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            test-${{ steps.beam.outputs.elixir-version }}-${{ github.head_ref || github.ref }}-
+            test-${{ steps.beam.outputs.elixir-version }}-refs/heads/master-
+
+      - run: mix deps.get --only $MIX_ENV
+      - run: mix compile --warnings-as-errors
+
+      - uses: LocalStack/setup-localstack@v0.2.2
+        with:
+          image-tag: "latest"
+          install-awslocal: "true"
+
+      - run: awslocal kinesis create-stream --stream-name my-local-stream --shard-count 1
+      - run: awslocal dynamodb create-table --table-name my-local-table --attribute-definitions AttributeName=id,AttributeType=S --key-schema AttributeName=id,KeyType=HASH --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+
+      - run: mix test --include slow
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          # TODO: https://github.com/erlef/setup-beam/issues/329
+          elixir-version: 1.18-otp-27
+          otp-version: 28
+      - run: elixir -v
+      - run: mix format --check-formatted

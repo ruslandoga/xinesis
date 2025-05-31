@@ -1,0 +1,9 @@
+services:
+  localstack:
+    image: localstack/localstack:4.4.0
+    ports:
+      - 4566:4566
+    env:
+      SERVICES: kinesis,dynamodb
+      KINESIS_ERROR_PROBABILITY: ${KINESIS_ERROR_PROBABILITY:-0.0}"
+      DYNAMODB_ERROR_PROBABILITY: ${DYNAMODB_ERROR_PROBABILITY:-0.0}"
