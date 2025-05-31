@@ -51,7 +51,7 @@ jobs:
         with:
           image-tag: latest
 
-      - run: mix test --include slow
+      - run: mix test
 
   format:
     runs-on: ubuntu-latest

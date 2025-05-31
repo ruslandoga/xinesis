@@ -3,160 +3,64 @@ defmodule Kinesis do
   Documentation for `Kinesis`.
   """
 
-  use GenServer
   alias Mint.HTTP1, as: HTTP
 
-  def start_link(opts) do
-    {gen_opts, opts} = Keyword.split(opts, [:name])
-    GenServer.start_link(__MODULE__, opts, gen_opts)
-  end
+  kinesis_actions = [
+    "create_stream",
+    "delete_stream",
+    "list_streams",
+    "list_shards",
+    "merge_shards",
+    "put_record",
+    "put_records",
+    "describe_stream",
+    "get_shard_iterator",
+    "get_records",
+    "split_shard"
+  ]
 
-  @impl true
-  def init(_opts) do
-    {:ok, _conn} = HTTP.connect(:http, "localhost", 4566)
-  end
+  for action <- kinesis_actions do
+    aws_action = Macro.camelize(action)
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_CreateStream.html
-  def kinesis_create_stream(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.CreateStream"},
+    @doc """
+    See https://docs.aws.amazon.com/kinesis/latest/APIReference/API_#{aws_action}.html
+    """
+    def unquote(:"kinesis_#{action}")(conn, payload, opts \\ []) do
+      headers = [
+        {"x-amz-target", unquote("Kinesis_20131202.#{aws_action}")},
         {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
+      ]
+
+      json = JSON.encode_to_iodata!(payload)
+      request("kinesis", conn, "POST", "/", headers, json, opts)
+    end
   end
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DeleteStream.html
-  def kinesis_delete_stream(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.DeleteStream"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
+  dynamodb_actions = [
+    "list_tables",
+    "create_table",
+    "delete_table",
+    "describe_table",
+    "put_item",
+    "get_item",
+    "update_item"
+  ]
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
-  def kinesis_list_streams(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.ListStreams"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
+  for action <- dynamodb_actions do
+    aws_action = Macro.camelize(action)
 
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DescribeStream.html
-  def kinesis_describe_stream(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.DescribeStream"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetShardIterator.html
-  def kinesis_get_shard_iterator(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.GetShardIterator"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_GetRecords.html
-  def kinesis_get_records(conn, payload) do
-    request(
-      "kinesis",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "Kinesis_20131202.GetRecords"},
-        {"content-type", "application/x-amz-json-1.1"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  def dynamodb_list_tables(conn, payload) do
-    request(
-      "dynamodb",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "DynamoDB_20120810.ListTables"},
+    @doc """
+    See https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_#{aws_action}.html
+    """
+    def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
+      headers = [
+        {"x-amz-target", unquote("DynamoDB_20120810.#{aws_action}")},
         {"content-type", "application/x-amz-json-1.0"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
+      ]
 
-  # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateTable.html
-  def dynamodb_create_table(conn, payload) do
-    request(
-      "dynamodb",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "DynamoDB_20120810.CreateTable"},
-        {"content-type", "application/x-amz-json-1.0"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
-  end
-
-  # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DeleteTable.html
-  def dynamodb_delete_table(conn, payload) do
-    request(
-      "dynamodb",
-      conn,
-      "POST",
-      "/",
-      [
-        {"x-amz-target", "DynamoDB_20120810.DeleteTable"},
-        {"content-type", "application/x-amz-json-1.0"}
-      ],
-      JSON.encode_to_iodata!(payload),
-      []
-    )
+      json = JSON.encode_to_iodata!(payload)
+      request("dynamodb", conn, "POST", "/", headers, json, opts)
+    end
   end
 
   defp request(service, conn, method, path, headers, body, opts) do
@@ -167,9 +71,11 @@ defmodule Kinesis do
 
   @dialyzer {:no_improper_lists, send_request: 6}
   defp send_request(service, conn, method, path, headers, body) do
+    # TODO
     access_key_id = "test"
+    # TODO
     secret_access_key = "test"
-
+    # TODO
     host = "localhost"
     region = "us-east-1"
     utc_now = DateTime.utc_now(:second)
