@@ -12,7 +12,7 @@ unless kinesis_available? do
   Mix.shell().error("""
   Kinesis mock is not detected! Please start the local container with the following command:
 
-      docker compose up -d kinesis-mock
+      docker compose up -d localstack
   """)
 end
 

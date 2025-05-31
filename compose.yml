@@ -1,12 +1,8 @@
 services:
-  # TODO: replace with https://github.com/etspaceman/kinesis-mock
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest-alpine
+  localstack:
+    image: localstack/localstack:4.4.0
     ports:
-      - 8123:8123
-    environment:
-      - CLICKHOUSE_SKIP_USER_SETUP=1
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
+      - 4567:4567
+      - 4568:4568
+    env:
+      - A:A
