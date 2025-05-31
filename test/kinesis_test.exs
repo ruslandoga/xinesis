@@ -102,7 +102,7 @@ defmodule KinesisTest do
              Kinesis.kinesis_get_shard_iterator(
                conn,
                %{
-                 "StreamName" => "my-local-stream",
+                 "StreamName" => "my-test-stream",
                  "ShardId" => "shardId-000000000000",
                  "ShardIteratorType" => "AT_SEQUENCE_NUMBER",
                  "StartingSequenceNumber" => starting_sequence_number
