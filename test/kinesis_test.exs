@@ -17,7 +17,7 @@ defmodule KinesisTest do
 
     on_exit(fn ->
       {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
-      {:ok, _conn, _resp} = Kinesis.dynamodb_delete_table(conn, %{"TableName" => "my-test-table"})
+      {:ok, _, _} = Kinesis.dynamodb_delete_table(conn, %{"TableName" => "my-test-table"})
     end)
 
     assert %{
@@ -48,9 +48,7 @@ defmodule KinesisTest do
 
     on_exit(fn ->
       {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
-
-      {:ok, _conn, _resp} =
-        Kinesis.kinesis_delete_stream(conn, %{"StreamName" => "my-test-stream"})
+      {:ok, _, _} = Kinesis.kinesis_delete_stream(conn, %{"StreamName" => "my-test-stream"})
     end)
 
     assert resp == %{}
@@ -95,7 +93,10 @@ defmodule KinesisTest do
            } = response
 
     # TODO?
-    :timer.sleep(500)
+    :timer.sleep(550)
+
+    assert {:ok, conn, %{"StreamDescription" => %{"StreamStatus" => "ACTIVE"}}} =
+             Kinesis.kinesis_describe_stream(conn, %{"StreamName" => "my-test-stream"})
 
     assert {:ok, conn, resp} =
              Kinesis.kinesis_get_shard_iterator(
