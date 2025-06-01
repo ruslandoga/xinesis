@@ -16,6 +16,8 @@ unless localstack_available? do
 
       docker compose up -d localstack
   """)
+
+  :init.stop(1)
 end
 
 ExUnit.start()
