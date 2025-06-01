@@ -21,7 +21,7 @@ jobs:
         otp: [28, 27]
 
     services:
-      postgres:
+      localstack:
         image: localstack/localstack:4.4.0
         ports:
           - 4566:4566
