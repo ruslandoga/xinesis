@@ -161,6 +161,60 @@ defmodule KinesisTest do
     test "expired shard iterator"
   end
 
+  describe "enhanced fan-out" do
+    setup [:create_stream, :await_stream_active]
+
+    test "subscribe to shard and consume records", %{conn: conn1, stream_name: stream_name} do
+      {:ok, conn1, %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn}}} =
+        Kinesis.api_describe_stream_summary(conn1, %{"StreamName" => stream_name})
+
+      {:ok, conn1, %{"Consumer" => %{"ConsumerARN" => consumer_arn}}} =
+        Kinesis.api_register_stream_consumer(conn1, %{
+          "StreamARN" => stream_arn,
+          "ConsumerName" => "test_consumer"
+        })
+
+      on_exit(fn ->
+        with_conn(fn conn ->
+          {:ok, _, _} =
+            Kinesis.api_deregister_stream_consumer(conn, %{"ConsumerARN" => consumer_arn})
+        end)
+      end)
+
+      assert {:ok, conn2} = Mint.HTTP2.connect(:http, "localhost", 4566, mode: :passive)
+
+      assert {:ok, conn2, _ref} =
+               Kinesis.api_subscribe_to_shard(conn2, %{
+                 "ConsumerARN" => consumer_arn,
+                 "ShardId" => "shardId-000000000000",
+                 "StartingPosition" => %{
+                   "Type" => "TRIM_HORIZON"
+                 }
+               })
+
+      assert {:ok, conn2, []} = Mint.HTTP2.recv(conn2, 0, :infinity)
+      assert {:ok, conn2, responses} = Mint.HTTP2.recv(conn2, 0, :infinity)
+      assert responses == []
+
+      {:ok, _conn1, %{"FailedRecordCount" => 0}} =
+        Kinesis.api_put_records(conn1, %{
+          "StreamName" => stream_name,
+          "Records" =>
+            Enum.map(1..10, fn i ->
+              %{
+                "Data" => Base.encode64("data-#{i}"),
+                "PartitionKey" => "key-#{i}"
+              }
+            end)
+        })
+
+      assert {:ok, _conn2, _responses} = Mint.HTTP2.recv(conn2, 0, :infinity)
+    end
+
+    @tag :skip
+    test "enhanced fan out with multiple consumers"
+  end
+
   describe "checkpointing" do
     setup [:create_stream, :await_stream_active, :create_table]
 
