@@ -24,23 +24,21 @@ defmodule Kinesis do
     "create_stream",
     "delete_stream",
     "list_streams",
+    "describe_stream_summary",
     "list_shards",
+    "split_shard",
     "merge_shards",
-    "put_record",
-    "put_records",
-    "describe_stream",
     "get_shard_iterator",
     "get_records",
-    "split_shard"
+    "put_record",
+    "put_records"
   ]
 
   for action <- kinesis_actions do
-    aws_action = Macro.camelize(action)
-
     @doc false
     def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
       headers = [
-        {"x-amz-target", unquote("Kinesis_20131202.#{aws_action}")},
+        {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.1"}
       ]
 
@@ -51,22 +49,18 @@ defmodule Kinesis do
 
   # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations_Amazon_DynamoDB.html
   dynamodb_actions = [
-    "list_tables",
     "create_table",
     "delete_table",
-    "describe_table",
     "put_item",
     "get_item",
     "update_item"
   ]
 
   for action <- dynamodb_actions do
-    aws_action = Macro.camelize(action)
-
     @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
       headers = [
-        {"x-amz-target", unquote("DynamoDB_20120810.#{aws_action}")},
+        {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.0"}
       ]
 
@@ -242,38 +236,36 @@ defmodule Kinesis do
   defp receive_response(conn, timeout) do
     with {:ok, conn, responses} <- recv_all(conn, [], timeout) do
       case responses do
-        [200, headers | rest] ->
-          content_type = :proplists.get_value("content-type", headers, nil)
+        [status, headers | rest] when status >= 200 and status < 300 ->
+          content_type =
+            :proplists.get_value("content-type", headers, nil) ||
+              raise "missing content-type header"
 
-          # TODO
-          response =
-            if is_binary(content_type) and String.contains?(content_type, "json") do
-              JSON.decode!(IO.iodata_to_binary(rest))
-            else
-              # TODO
-              responses
-            end
+          String.contains?(content_type, "json") ||
+            raise "unexpected content-type: #{content_type}"
 
+          response = JSON.decode!(IO.iodata_to_binary(rest))
           {:ok, conn, response}
 
-        # TODO
-        [_status, headers | data] ->
+        [status, headers | data] when status >= 400 and status < 600 ->
           content_type = :proplists.get_value("content-type", headers, nil)
           error_type = :proplists.get_value("x-amzn-errortype", headers, nil)
+          data = IO.iodata_to_binary(data)
 
           # TODO
           error =
             if is_binary(content_type) and String.contains?(content_type, "json") do
-              %{"message" => message} =
-                json =
-                JSON.decode!(IO.iodata_to_binary(data))
+              json = JSON.decode!(data)
 
               Error.exception(
                 type: json["__type"] || error_type,
-                message: message
+                message: json["message"] || data
               )
             else
-              Error.exception(type: error_type, message: IO.iodata_to_binary(data))
+              Error.exception(
+                type: error_type || Integer.to_string(status),
+                message: data
+              )
             end
 
           {:error, error, conn}
@@ -306,7 +298,7 @@ defmodule Kinesis do
 
   # TODO also consider connect timeout
   # TODO
-  defp timeout(_conn, _opts), do: :timer.seconds(5)
+  defp timeout(_conn, opts), do: Keyword.get(opts, :timeout, :timer.seconds(5))
 
   defp put_header(headers, key, value), do: [{key, value} | List.keydelete(headers, key, 1)]
   defp hex(value), do: Base.encode16(value, case: :lower)
