@@ -6,74 +6,72 @@ defmodule Kinesis do
   require Logger
   alias Mint.HTTP1, as: HTTP
 
-  use GenServer
+  # use GenServer
 
-  @behaviour GenServer
+  # def start_link(opts \\ []) do
+  #   {gen_opts, opts} = Keyword.split(opts, [:name, :debug, :spawn_opt])
+  #   GenServer.start_link(__MODULE__, opts, gen_opts)
+  # end
 
-  def start_link(opts \\ []) do
-    {gen_opts, opts} = Keyword.split(opts, [:name, :debug, :spawn_opt])
-    GenServer.start_link(__MODULE__, opts, gen_opts)
-  end
+  # @impl true
+  # def init(opts) do
+  #   Process.flag(:trap_exit, true)
+  #   processor = Keyword.fetch!(opts, :processor)
+  #   stream = Keyword.fetch!(opts, :stream)
+  #   table = Keyword.fetch!(opts, :table)
 
-  @impl true
-  def init(opts) do
-    Process.flag(:trap_exit, true)
-    processor = Keyword.fetch!(opts, :processor)
-    stream = Keyword.fetch!(opts, :stream)
-    table = Keyword.fetch!(opts, :table)
+  #   state = %{
+  #     conn: nil,
+  #     shards: %{},
+  #     processor: processor,
+  #     stream: stream,
+  #     table: table
+  #   }
 
-    state = %{
-      conn: nil,
-      shards: %{},
-      processor: processor,
-      stream: stream,
-      table: table
-    }
+  #   {:ok, state, {:continue, :connect}}
+  # end
 
-    {:ok, state, {:continue, :connect}}
-  end
+  # @impl true
+  # def handle_continue(:connect, state) do
+  #   {:ok, conn} = HTTP.connect(:http, "localhost", 8123, mode: :passive)
+  #   {:noreply, %{state | conn: conn}, {:continue, :stream}}
+  # end
 
-  @impl true
-  def handle_continue(:connect, state) do
-    {:ok, conn} = HTTP.connect(:http, "localhost", 8123, mode: :passive)
-    {:noreply, %{state | conn: conn}, {:continue, :stream}}
-  end
+  # def handle_continue(:stream, state) do
+  #   case api_describe_stream_summary(state.conn, %{"StreamName" => state.stream}) do
+  #     {:ok, conn, %{}} ->
+  #       {:noreply, %{state | conn: conn}, {:continue, :shard}}
 
-  def handle_continue(:stream, state) do
-    case api_describe_stream_summary(state.conn, %{"StreamName" => state.stream}) do
-      {:ok, conn, %{}} ->
-        {:noreply, %{state | conn: conn}, {:continue, :shard}}
+  #     # TODO
+  #     {:error, error, conn} ->
+  #       {:stop, error, %{state | conn: conn}}
+  #   end
+  # end
 
-      # TODO
-      {:error, error, conn} ->
-        {:stop, error, %{state | conn: conn}}
-    end
-  end
+  # def handle_continue(:processor, state) do
+  #   for shard_id <- Map.keys(state.shards) do
+  #     spawn_processor(state, shard_id)
+  #   end
 
-  def handle_continue(:processor, state) do
-    for shard_id <- Map.keys(state.shards) do
-      spawn_processor(state, shard_id)
-    end
+  #   {:noreply, state}
+  # end
 
-    {:noreply, state}
-  end
+  # @impl true
+  # def handle_info({:EXIT, _pid, reason}, state) do
+  #   Logger.error("Processor exited with reason: #{inspect(reason)}")
+  #   {:noreply, state}
+  # end
 
-  @impl true
-  def handle_info({:EXIT, _pid, reason}, state) do
-    Logger.error("Processor exited with reason: #{inspect(reason)}")
-    {:noreply, state}
-  end
+  # defp spawn_processor(state, shard_id) do
+  #   owner = "owner-#{shard_id}"
 
-  defp spawn_processor(state, shard_id) do
-    owner = "owner-#{shard_id}"
+  #   :proc_lib.spawn_link(__MODULE__, :_, [state.processor])
+  # end
 
-    :proc_lib.spawn_link(__MODULE__, :_, [state.processor])
-  end
-
-  @doc false
-  def launch_processor() do
-    #
-  end
+  # @doc false
+  # def launch_processor() do
+  #   #
+  # end
 
   defmodule Error do
     @moduledoc "TODO"
