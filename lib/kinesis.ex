@@ -28,22 +28,28 @@ defmodule Kinesis do
     "list_shards",
     "split_shard",
     "merge_shards",
+    "update_shard_count",
     "get_shard_iterator",
     "get_records",
     "put_record",
-    "put_records"
+    "put_records",
+    "deregister_stream_consumer",
+    "register_stream_consumer"
   ]
 
   for action <- kinesis_actions do
     @doc false
     def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
+      # these headers will be signed
       headers = [
         {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
-        {"content-type", "application/x-amz-json-1.1"}
+        {"content-type", "application/x-amz-json-1.1"},
+        {"host", conn.host}
       ]
 
+      headers = [{"authorization", authorization("kinesis", headers)} | headers]
       json = JSON.encode_to_iodata!(payload)
-      request("kinesis", conn, headers, json, opts)
+      request(conn, headers, json, opts)
     end
   end
 
@@ -59,13 +65,16 @@ defmodule Kinesis do
   for action <- dynamodb_actions do
     @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
+      # these headers will be signed
       headers = [
         {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
-        {"content-type", "application/x-amz-json-1.0"}
+        {"content-type", "application/x-amz-json-1.0"},
+        {"host", conn.host}
       ]
 
+      headers = [{"authorization", authorization("dynamodb", headers)} | headers]
       json = JSON.encode_to_iodata!(payload)
-      request("dynamodb", conn, headers, json, opts)
+      request(conn, headers, json, opts)
     end
   end
 
@@ -160,20 +169,25 @@ defmodule Kinesis do
   end
 
   # TODO retries, exponential backoff, etc. or should it be handled by the caller (gen_statem)?
-  defp request(service, conn, headers, body, opts) do
-    with {:ok, conn, _ref} <- send_request(service, conn, headers, body) do
+  defp request(conn, headers, body, opts) do
+    with {:ok, conn, _ref} <- send_request(conn, headers, body) do
       receive_response(conn, timeout(conn, opts))
     end
   end
 
-  @dialyzer {:no_improper_lists, send_request: 4}
-  defp send_request(service, conn, headers, body) do
+  defp send_request(conn, headers, body) do
+    case HTTP.request(conn, "POST", "/", headers, body) do
+      {:ok, _conn, _ref} = ok -> ok
+      {:error, conn, reason} -> {:disconnect, reason, conn}
+    end
+  end
+
+  @dialyzer {:no_improper_lists, authorization: 2}
+  defp authorization(service, headers) do
     # TODO
     access_key_id = "test"
     # TODO
     secret_access_key = "test"
-    # TODO
-    host = "localhost"
     # TODO
     region = "us-east-1"
 
@@ -182,15 +196,11 @@ defmodule Kinesis do
     amz_short_date = String.slice(amz_date, 0, 8)
     scope = IO.iodata_to_binary([amz_short_date, ?/, region, ?/, service, ?/, "aws4_request"])
 
-    headers =
-      Enum.map(headers, fn {k, v} -> {String.downcase(k), v} end)
-      |> put_header("host", host)
-      |> put_header("x-amz-date", amz_date)
+    headers = [{"x-amz-date", amz_date} | headers]
 
     signed_headers =
       headers
-      |> Enum.map(fn {k, _} -> k end)
-      |> Enum.intersperse(?;)
+      |> Enum.map_intersperse(?;, fn {k, _} -> k end)
       |> IO.iodata_to_binary()
 
     canonical_request = [
@@ -219,18 +229,11 @@ defmodule Kinesis do
 
     signature = hex_hmac_sha256(signing_key, string_to_sign)
 
-    authorization = """
+    """
     AWS4-HMAC-SHA256 Credential=#{access_key_id}/#{scope},\
     SignedHeaders=#{signed_headers},\
     Signature=#{signature}\
     """
-
-    headers = [{"authorization", authorization} | headers]
-
-    case HTTP.request(conn, "POST", "/", headers, body) do
-      {:ok, _conn, _ref} = ok -> ok
-      {:error, conn, reason} -> {:disconnect, reason, conn}
-    end
   end
 
   defp receive_response(conn, timeout) do
@@ -300,7 +303,6 @@ defmodule Kinesis do
   # TODO
   defp timeout(_conn, opts), do: Keyword.get(opts, :timeout, :timer.seconds(5))
 
-  defp put_header(headers, key, value), do: [{key, value} | List.keydelete(headers, key, 1)]
   defp hex(value), do: Base.encode16(value, case: :lower)
   defp sha256(value), do: :crypto.hash(:sha256, value)
   defp hmac_sha256(secret, value), do: :crypto.mac(:hmac, :sha256, secret, value)
