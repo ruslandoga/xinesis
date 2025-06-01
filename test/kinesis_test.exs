@@ -187,13 +187,13 @@ defmodule KinesisTest do
                Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
       assert {:ok, conn, _not_found = %{}} =
-               Kinesis.get_lease(conn, table_name, shard_id, owner)
+               Kinesis.get_lease(conn, table_name, shard_id)
 
       assert {:ok, conn, _ok = %{}} =
                Kinesis.create_lease(conn, table_name, shard_id, owner)
 
       assert {:ok, conn, %{"Item" => lease}} =
-               Kinesis.get_lease(conn, table_name, shard_id, owner)
+               Kinesis.get_lease(conn, table_name, shard_id)
 
       assert lease == %{
                "completed" => %{"BOOL" => false},
@@ -466,8 +466,10 @@ defmodule KinesisTest do
         delays = List.duplicate(100, 10)
 
         Enum.reduce_while(delays, conn, fn delay, conn ->
-          {:ok, conn, resp} = Kinesis.api_describe_stream(conn, %{"StreamName" => stream_name})
-          %{"StreamDescription" => %{"StreamStatus" => status}} = resp
+          {:ok, conn, resp} =
+            Kinesis.api_describe_stream_summary(conn, %{"StreamName" => stream_name})
+
+          %{"StreamDescriptionSummary" => %{"StreamStatus" => status}} = resp
 
           if status == "ACTIVE" do
             {:halt, :active}

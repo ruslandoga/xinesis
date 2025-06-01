@@ -17,13 +17,22 @@ jobs:
 
     strategy:
       matrix:
-        # TODO decide which versions to support
-        # elixir: [1.18, 1.17, 1.16]
-        # otp: [27, 26]
-        include:
-          # TODO: https://github.com/erlef/setup-beam/issues/329
-          - elixir: 1.18-otp-27
-            otp: 28
+        elixir: [1.18-otp-27]
+        otp: [28, 27]
+
+    services:
+      postgres:
+        image: localstack/localstack:4.4.0
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: kinesis,dynamodb
+          KINESIS_LATENCY: 0
+          options: >-
+            --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+            --health-interval 30s
+            --health-timeout 10s
+            --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -46,11 +55,6 @@ jobs:
 
       - run: mix deps.get --only $MIX_ENV
       - run: mix compile --warnings-as-errors
-
-      - uses: LocalStack/setup-localstack@v0.2.2
-        with:
-          image-tag: latest
-
       - run: mix test
 
   format:
@@ -59,7 +63,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
-          # TODO: https://github.com/erlef/setup-beam/issues/329
           elixir-version: 1.18-otp-27
           otp-version: 28
       - run: elixir -v

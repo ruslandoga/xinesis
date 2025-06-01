@@ -6,6 +6,75 @@ defmodule Kinesis do
   require Logger
   alias Mint.HTTP1, as: HTTP
 
+  use GenServer
+
+  @behaviour GenServer
+
+  def start_link(opts \\ []) do
+    {gen_opts, opts} = Keyword.split(opts, [:name, :debug, :spawn_opt])
+    GenServer.start_link(__MODULE__, opts, gen_opts)
+  end
+
+  @impl true
+  def init(opts) do
+    Process.flag(:trap_exit, true)
+    processor = Keyword.fetch!(opts, :processor)
+    stream = Keyword.fetch!(opts, :stream)
+    table = Keyword.fetch!(opts, :table)
+
+    state = %{
+      conn: nil,
+      shards: %{},
+      processor: processor,
+      stream: stream,
+      table: table
+    }
+
+    {:ok, state, {:continue, :connect}}
+  end
+
+  @impl true
+  def handle_continue(:connect, state) do
+    {:ok, conn} = HTTP.connect(:http, "localhost", 8123, mode: :passive)
+    {:noreply, %{state | conn: conn}, {:continue, :stream}}
+  end
+
+  def handle_continue(:stream, state) do
+    case api_describe_stream_summary(state.conn, %{"StreamName" => state.stream}) do
+      {:ok, conn, %{}} ->
+        {:noreply, %{state | conn: conn}, {:continue, :shard}}
+
+      # TODO
+      {:error, error, conn} ->
+        {:stop, error, %{state | conn: conn}}
+    end
+  end
+
+  def handle_continue(:processor, state) do
+    for shard_id <- Map.keys(state.shards) do
+      spawn_processor(state, shard_id)
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:EXIT, _pid, reason}, state) do
+    Logger.error("Processor exited with reason: #{inspect(reason)}")
+    {:noreply, state}
+  end
+
+  defp spawn_processor(state, shard_id) do
+    owner = "owner-#{shard_id}"
+
+    :proc_lib.spawn_link(__MODULE__, :_, [state.processor])
+  end
+
+  @doc false
+  def launch_processor() do
+    #
+  end
+
   defmodule Error do
     @moduledoc "TODO"
     defexception [:type, :message]
@@ -24,23 +93,21 @@ defmodule Kinesis do
     "create_stream",
     "delete_stream",
     "list_streams",
+    "describe_stream_summary",
     "list_shards",
+    "split_shard",
     "merge_shards",
-    "put_record",
-    "put_records",
-    "describe_stream",
     "get_shard_iterator",
     "get_records",
-    "split_shard"
+    "put_record",
+    "put_records"
   ]
 
   for action <- kinesis_actions do
-    aws_action = Macro.camelize(action)
-
     @doc false
     def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
       headers = [
-        {"x-amz-target", unquote("Kinesis_20131202.#{aws_action}")},
+        {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.1"}
       ]
 
@@ -51,22 +118,18 @@ defmodule Kinesis do
 
   # https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations_Amazon_DynamoDB.html
   dynamodb_actions = [
-    "list_tables",
     "create_table",
     "delete_table",
-    "describe_table",
     "put_item",
     "get_item",
     "update_item"
   ]
 
   for action <- dynamodb_actions do
-    aws_action = Macro.camelize(action)
-
     @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
       headers = [
-        {"x-amz-target", unquote("DynamoDB_20120810.#{aws_action}")},
+        {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.0"}
       ]
 
@@ -242,38 +305,36 @@ defmodule Kinesis do
   defp receive_response(conn, timeout) do
     with {:ok, conn, responses} <- recv_all(conn, [], timeout) do
       case responses do
-        [200, headers | rest] ->
-          content_type = :proplists.get_value("content-type", headers, nil)
+        [status, headers | rest] when status >= 200 and status < 300 ->
+          content_type =
+            :proplists.get_value("content-type", headers, nil) ||
+              raise "missing content-type header"
 
-          # TODO
-          response =
-            if is_binary(content_type) and String.contains?(content_type, "json") do
-              JSON.decode!(IO.iodata_to_binary(rest))
-            else
-              # TODO
-              responses
-            end
+          String.contains?(content_type, "json") ||
+            raise "unexpected content-type: #{content_type}"
 
+          response = JSON.decode!(IO.iodata_to_binary(rest))
           {:ok, conn, response}
 
-        # TODO
-        [_status, headers | data] ->
+        [status, headers | data] when status >= 400 and status < 600 ->
           content_type = :proplists.get_value("content-type", headers, nil)
           error_type = :proplists.get_value("x-amzn-errortype", headers, nil)
+          data = IO.iodata_to_binary(data)
 
           # TODO
           error =
             if is_binary(content_type) and String.contains?(content_type, "json") do
-              %{"message" => message} =
-                json =
-                JSON.decode!(IO.iodata_to_binary(data))
+              json = JSON.decode!(data)
 
               Error.exception(
                 type: json["__type"] || error_type,
-                message: message
+                message: json["message"] || data
               )
             else
-              Error.exception(type: error_type, message: IO.iodata_to_binary(data))
+              Error.exception(
+                type: error_type || Integer.to_string(status),
+                message: data
+              )
             end
 
           {:error, error, conn}
@@ -306,7 +367,7 @@ defmodule Kinesis do
 
   # TODO also consider connect timeout
   # TODO
-  defp timeout(_conn, _opts), do: :timer.seconds(5)
+  defp timeout(_conn, opts), do: Keyword.get(opts, :timeout, :timer.seconds(5))
 
   defp put_header(headers, key, value), do: [{key, value} | List.keydelete(headers, key, 1)]
   defp hex(value), do: Base.encode16(value, case: :lower)
