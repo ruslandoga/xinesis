@@ -8,3 +8,9 @@ services:
       KINESIS_LATENCY: ${KINESIS_LATENCY:-0}
       KINESIS_ERROR_PROBABILITY: ${KINESIS_ERROR_PROBABILITY:-0.0}
       DYNAMODB_ERROR_PROBABILITY: ${DYNAMODB_ERROR_PROBABILITY:-0.0}
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+volumes:
+  localstack_data:
+    
