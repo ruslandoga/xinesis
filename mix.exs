@@ -18,7 +18,8 @@ defmodule Kinesis.MixProject do
     ]
   end
 
-  defp extra_applications(:test), do: [:inets]
+  defp extra_applications(:test), do: [:inets, :tools]
+  defp extra_applications(:dev), do: [:tools]
   defp extra_applications(_env), do: []
 
   # Run "mix help deps" to learn about dependencies.

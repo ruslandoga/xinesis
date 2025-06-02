@@ -194,7 +194,7 @@ defmodule Kinesis do
     utc_now = DateTime.utc_now(:second)
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
     amz_short_date = String.slice(amz_date, 0, 8)
-    scope = IO.iodata_to_binary([amz_short_date, ?/, region, ?/, service, ?/, "aws4_request"])
+    scope = amz_short_date <> "/" <> region <> "/" <> service <> "/aws4_request"
 
     headers = [{"x-amz-date", amz_date} | headers]
 
