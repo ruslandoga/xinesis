@@ -44,12 +44,31 @@ defmodule Kinesis do
       headers = [
         {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.1"},
+        # TODO can it be a tuple?
         {"host", conn.host}
       ]
 
       headers = [{"authorization", authorization("kinesis", headers)} | headers]
       json = JSON.encode_to_iodata!(payload)
       request(conn, headers, json, opts)
+    end
+  end
+
+  @doc false
+  def api_subscribe_to_shard(conn, payload, _opts \\ []) do
+    # these headers will be signed
+    headers = [
+      {"x-amz-target", "Kinesis_20131202.SubscribeToShard"},
+      {"content-type", "application/x-amz-json-1.1"},
+      {"host", conn.hostname}
+    ]
+
+    headers = [{"authorization", authorization("kinesis", headers)} | headers]
+    json = JSON.encode_to_iodata!(payload)
+
+    case Mint.HTTP2.request(conn, "POST", "/", headers, json) do
+      {:ok, _conn, _ref} = ok -> ok
+      {:error, conn, reason} -> {:disconnect, reason, conn}
     end
   end
 
@@ -69,6 +88,7 @@ defmodule Kinesis do
       headers = [
         {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
         {"content-type", "application/x-amz-json-1.0"},
+        # TODO can it be a tuple?
         {"host", conn.host}
       ]
 
