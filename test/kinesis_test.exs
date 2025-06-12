@@ -444,7 +444,7 @@ defmodule KinesisTest do
   defp conn(service) do
     host =
       case service do
-        :kinesis -> "kinesis.eu-north-1.amazonaws.com"
+        :kinesis -> "kinesis.eu-north-1.api.aws"
         :dynamodb -> "dynamodb.eu-north-1.api.aws"
       end
 
