@@ -15,7 +15,7 @@ thoughts:
 - if stream doesn't exist, if dynamodb table cannot be created (maybe due to an iam role issue, where the creds only have kinesis access), ...?
 
 possible API:
-- module callback style like `Postgrex.ReplicationConnection` or Oban worker
+- module callback style like `Postgrex.ReplicationConnection` or Oban worker or https://elixirforum.com/t/klife-introducing-kafka-consumer-groups-api-preview-design-discussion-rfc/71247
 - function callback style like `:telemetry`
 
   ```elixir
