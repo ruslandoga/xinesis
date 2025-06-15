@@ -20,13 +20,13 @@ possible API:
 
   ```elixir
   defmodule Events do
-    def process(shard_id, records, _config = nil) do
+    def process_batch(shard_id, records, _config = nil) do
       # ...
     end
   end
 
-  _supervisor_child = {Kinesis, stream: "some/stream/arn", consumer: {&Events.process/3, _config = nil}}
-  Kinesis.start_consumer("some/stream/arn", &Events.process/3, _config = nil)
+  _supervisor_child = {Kinesis, stream: "some/stream/arn", consumer: {&Events.process_batch/3, _config = nil}}
+  Kinesis.start_consumer("some/stream/arn", &Events.process_batch/3, _config = nil)
   ```
 
 TODOs / to check out:
