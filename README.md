@@ -15,7 +15,7 @@ thoughts:
 - if stream doesn't exist, if dynamodb table cannot be created (maybe due to an iam role issue, where the creds only have kinesis access), ...?
 
 possible API:
-- module callback style like `Postgrex.ReplicationConnection` or Oban worker or https://elixirforum.com/t/klife-introducing-kafka-consumer-groups-api-preview-design-discussion-rfc/71247
+- module callback style like `Postgrex.ReplicationConnection` or Oban worker
 - function callback style like `:telemetry`
 
   ```elixir
@@ -39,3 +39,5 @@ TODOs / to check out:
 - [ ] https://github.com/awslabs/amazon-kinesis-client (tests)
 - [ ] https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Operations_Amazon_DynamoDB.html for leases and checkpoints
 - [ ] https://docs.aws.amazon.com/kinesis/latest/APIReference/API_Operations.html
+- [ ] https://github.com/nats-io/nats.ex
+- [ ] https://elixirforum.com/t/klife-introducing-kafka-consumer-groups-api-preview-design-discussion-rfc/71247
