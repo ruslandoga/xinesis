@@ -6,6 +6,88 @@ defmodule Xinesis do
   require Logger
   alias Mint.HTTP1, as: HTTP
 
+  use GenServer
+
+  def start_link(opts) do
+    gen_opts = Keyword.take(opts, [:name, :spawn_opt, :debug])
+    GenServer.start_link(__MODULE__, opts, gen_opts)
+  end
+
+  @impl true
+  def init(opts) do
+    Process.flag(:trap_exit, true)
+
+    scheme = Keyword.fetch!(opts, :scheme)
+    host = Keyword.fetch!(opts, :host)
+    port = Keyword.fetch!(opts, :port)
+    access_key_id = Keyword.fetch!(opts, :access_key_id)
+    # TODO custom Inspect to hide it in logs?
+    secret_access_key = Keyword.fetch!(opts, :secret_access_key)
+    region = Keyword.fetch!(opts, :region)
+
+    stream =
+      cond do
+        arn = Keyword.get(opts, :stream_arn) -> {:arn, arn}
+        name = Keyword.get(opts, :stream_name) -> {:name, name}
+        true -> raise ArgumentError, "either :stream_arn or :stream_name must be provided"
+      end
+
+    state = %{
+      scheme: scheme,
+      host: host,
+      port: port,
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region,
+      stream: stream,
+      backoff: 0,
+      conn: nil,
+      conn_monitor: nil
+    }
+
+    {:ok, state, {:continue, :connect}}
+  end
+
+  @impl true
+  def handle_continue(:connect, state) do
+    case connect(state) do
+      {:ok, conn} ->
+        # TODO
+        conn_monitor = :inet.monitor(conn.socket)
+
+        {:noreply, %{state | conn: conn, conn_monitor: conn_monitor},
+         {:continue, :await_stream_active}}
+
+      {:error, reason} ->
+        {:noreply, state, {:continue, :connect}}
+    end
+  end
+
+  def handle_continue(:await_stream_active, state) do
+    %{conn: conn, backoff: backoff, stream: stream} = state
+
+    payload =
+      case stream do
+        {:arn, arn} -> %{"StreamARN" => arn}
+        {:name, name} -> %{"StreamName" => name}
+      end
+
+    # TODO timeout?
+    case Xinesis.api_describe_stream_summary(conn, payload) do
+      {:ok, conn, %{"StreamDescriptionSummary" => %{"StreamStatus" => status}}} ->
+        if status == "ACTIVE" do
+          {:noreply, %{state | conn: conn}, {:continue, :list_shards}}
+        else
+          {:noreply, state, {:continue, :await_stream_active}}
+        end
+
+      {:error, reason} ->
+        nil
+    end
+
+    {:noreply, state}
+  end
+
   defmodule Error do
     @moduledoc "TODO"
     defexception [:type, :message]
@@ -19,13 +101,15 @@ defmodule Xinesis do
     end
   end
 
-  def connect(opts \\ []) do
-    scheme = Keyword.fetch!(opts, :scheme)
-    host = Keyword.fetch!(opts, :host)
-    port = Keyword.fetch!(opts, :port)
-    access_key_id = Keyword.fetch!(opts, :access_key_id)
-    secret_access_key = Keyword.fetch!(opts, :secret_access_key)
-    region = Keyword.fetch!(opts, :region)
+  def connect(state) do
+    %{
+      scheme: scheme,
+      host: host,
+      port: port,
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region
+    } = state
 
     client = %{
       access_key_id: access_key_id,
@@ -33,6 +117,7 @@ defmodule Xinesis do
       region: region
     }
 
+    # TODO allow providing custom connection options and timeout
     with {:ok, conn} <- HTTP.connect(scheme, host, port, mode: :passive) do
       {:ok, HTTP.put_private(conn, :client, client)}
     end
