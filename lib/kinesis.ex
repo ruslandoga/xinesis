@@ -255,13 +255,19 @@ defmodule Kinesis do
           String.contains?(content_type, "json") ||
             raise "unexpected content-type: #{content_type}"
 
-          response = JSON.decode!(IO.iodata_to_binary(rest))
+          data = IO.iodata_to_binary(rest)
+
+          response =
+            case data do
+              "" -> nil
+              _ -> JSON.decode!(data)
+            end
+
           {:ok, conn, response}
 
         [status, headers | data] when status >= 400 and status < 600 ->
           content_type = :proplists.get_value("content-type", headers, nil)
           error_type = :proplists.get_value("x-amzn-errortype", headers, nil)
-          data = IO.iodata_to_binary(data)
 
           # TODO
           error =
