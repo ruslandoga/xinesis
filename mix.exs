@@ -1,9 +1,9 @@
-defmodule Kinesis.MixProject do
+defmodule Xinesis.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :kinesis,
+      app: :xinesis,
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,

@@ -25,8 +25,8 @@ possible API:
     end
   end
 
-  _supervisor_child = {Kinesis, stream: "some/stream/arn", consumer: {&Events.process_batch/3, _config = nil}}
-  Kinesis.start_consumer("some/stream/arn", &Events.process_batch/3, _config = nil)
+  _supervisor_child = {Xinesis, stream: "some/stream/arn", consumer: {&Events.process_batch/3, _config = nil}}
+  Xinesis.start_consumer("some/stream/arn", &Events.process_batch/3, _config = nil)
   ```
 
 TODOs / to check out:

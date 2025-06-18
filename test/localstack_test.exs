@@ -1,4 +1,4 @@
-defmodule Kinesis.LocalstackTest do
+defmodule Xinesis.LocalstackTest do
   use ExUnit.Case
 
   setup %{test: test} do
@@ -13,7 +13,7 @@ defmodule Kinesis.LocalstackTest do
 
     test "consume all records with pagination", %{conn: conn, stream_name: stream_name} do
       {:ok, conn, %{"FailedRecordCount" => 0}} =
-        Kinesis.api_put_records(conn, %{
+        Xinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
           "Records" =>
             Enum.map(1..100, fn i ->
@@ -25,14 +25,14 @@ defmodule Kinesis.LocalstackTest do
         })
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000000",
                  "ShardIteratorType" => "TRIM_HORIZON"
                })
 
       assert {:ok, conn, resp} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 10,
                  "ShardIterator" => shard_iterator
                })
@@ -41,7 +41,7 @@ defmodule Kinesis.LocalstackTest do
       assert length(records) == 10
 
       assert {:ok, conn, resp} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 50,
                  "ShardIterator" => shard_iterator
                })
@@ -50,7 +50,7 @@ defmodule Kinesis.LocalstackTest do
       assert length(records) == 50
 
       assert {:ok, conn, resp} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 50,
                  "ShardIterator" => shard_iterator
                })
@@ -59,7 +59,7 @@ defmodule Kinesis.LocalstackTest do
       assert length(records) == 40
 
       assert {:ok, _conn, resp} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 50,
                  "ShardIterator" => shard_iterator
                })
@@ -69,14 +69,14 @@ defmodule Kinesis.LocalstackTest do
 
     test "shard iterator types", %{conn: conn, stream_name: stream_name} do
       {:ok, conn, %{"SequenceNumber" => seq1, "ShardId" => "shardId-000000000000"}} =
-        Kinesis.api_put_record(conn, %{
+        Xinesis.api_put_record(conn, %{
           "StreamName" => stream_name,
           "Data" => Base.encode64("record-1"),
           "PartitionKey" => "key"
         })
 
       {:ok, conn, %{"SequenceNumber" => seq2, "ShardId" => "shardId-000000000000"}} =
-        Kinesis.api_put_record(conn, %{
+        Xinesis.api_put_record(conn, %{
           "StreamName" => stream_name,
           "Data" => Base.encode64("record-2"),
           "PartitionKey" => "key"
@@ -84,7 +84,7 @@ defmodule Kinesis.LocalstackTest do
 
       # TRIM_HORIZON gets all records
       assert {:ok, conn, %{"ShardIterator" => shard_iterator_trim}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000000",
                  "ShardIteratorType" => "TRIM_HORIZON"
@@ -92,22 +92,22 @@ defmodule Kinesis.LocalstackTest do
 
       assert {:ok, conn,
               %{"Records" => [%{"SequenceNumber" => ^seq1}, %{"SequenceNumber" => ^seq2}]}} =
-               Kinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_trim})
+               Xinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_trim})
 
       # LATEST gets no records ...
       assert {:ok, conn, %{"ShardIterator" => shart_iterator_latest}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000000",
                  "ShardIteratorType" => "LATEST"
                })
 
       assert {:ok, conn, %{"Records" => []}} =
-               Kinesis.api_get_records(conn, %{"ShardIterator" => shart_iterator_latest})
+               Xinesis.api_get_records(conn, %{"ShardIterator" => shart_iterator_latest})
 
       # ... until a new record is added ...
       {:ok, conn, %{"SequenceNumber" => seq3, "ShardId" => "shardId-000000000000"}} =
-        Kinesis.api_put_record(conn, %{
+        Xinesis.api_put_record(conn, %{
           "StreamName" => stream_name,
           "Data" => Base.encode64("record-3"),
           "PartitionKey" => "key"
@@ -115,11 +115,11 @@ defmodule Kinesis.LocalstackTest do
 
       # ... and then it gets the latest record
       assert {:ok, conn, %{"Records" => [%{"SequenceNumber" => ^seq3}]}} =
-               Kinesis.api_get_records(conn, %{"ShardIterator" => shart_iterator_latest})
+               Xinesis.api_get_records(conn, %{"ShardIterator" => shart_iterator_latest})
 
       # AT_SEQUENCE_NUMBER
       {:ok, conn, %{"ShardIterator" => shard_iterator_at_seq}} =
-        Kinesis.api_get_shard_iterator(conn, %{
+        Xinesis.api_get_shard_iterator(conn, %{
           "StreamName" => stream_name,
           "ShardId" => "shardId-000000000000",
           "ShardIteratorType" => "AT_SEQUENCE_NUMBER",
@@ -134,11 +134,11 @@ defmodule Kinesis.LocalstackTest do
                   %{"SequenceNumber" => ^seq3}
                 ]
               }} =
-               Kinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_at_seq})
+               Xinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_at_seq})
 
       # AFTER_SEQUENCE_NUMBER
       # {:ok, conn, %{"ShardIterator" => shard_iterator_after_seq}} =
-      #   Kinesis.api_get_shard_iterator(conn, %{
+      #   Xinesis.api_get_shard_iterator(conn, %{
       #     "StreamName" => stream_name,
       #     "ShardId" => "shardId-000000000000",
       #     "ShardIteratorType" => "AFTER_SEQUENCE_NUMBER",
@@ -152,7 +152,7 @@ defmodule Kinesis.LocalstackTest do
       #             %{"SequenceNumber" => ^seq3}
       #           ]
       #         }} =
-      #          Kinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_after_seq})
+      #          Xinesis.api_get_records(conn, %{"ShardIterator" => shard_iterator_after_seq})
 
       # TODO AT_TIMESTAMP ???
     end
@@ -172,7 +172,7 @@ defmodule Kinesis.LocalstackTest do
       owner = "uniq_lease_owner"
 
       {:ok, conn, %{"FailedRecordCount" => 0}} =
-        Kinesis.api_put_records(conn, %{
+        Xinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
           "Records" =>
             Enum.map(1..100, fn i ->
@@ -184,16 +184,16 @@ defmodule Kinesis.LocalstackTest do
         })
 
       assert {:ok, conn, %{"Shards" => [%{"ShardId" => shard_id}]}} =
-               Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
+               Xinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
       assert {:ok, conn, _not_found = %{}} =
-               Kinesis.get_lease(conn, table_name, shard_id)
+               Xinesis.get_lease(conn, table_name, shard_id)
 
       assert {:ok, conn, _ok = %{}} =
-               Kinesis.create_lease(conn, table_name, shard_id, owner)
+               Xinesis.create_lease(conn, table_name, shard_id, owner)
 
       assert {:ok, conn, %{"Item" => lease}} =
-               Kinesis.get_lease(conn, table_name, shard_id)
+               Xinesis.get_lease(conn, table_name, shard_id)
 
       assert lease == %{
                "completed" => %{"BOOL" => false},
@@ -203,20 +203,20 @@ defmodule Kinesis.LocalstackTest do
              }
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => shard_id,
                  "ShardIteratorType" => "TRIM_HORIZON"
                })
 
       assert {:ok, conn, %{"NextShardIterator" => shard_iterator, "Records" => [_ | _]}} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 100,
                  "ShardIterator" => shard_iterator
                })
 
       assert {:ok, _conn, %{"Attributes" => %{"checkpoint" => %{"S" => ^shard_iterator}}}} =
-               Kinesis.update_checkpoint(conn, table_name, shard_id, owner, shard_iterator)
+               Xinesis.update_checkpoint(conn, table_name, shard_id, owner, shard_iterator)
     end
 
     @tag :skip
@@ -230,7 +230,7 @@ defmodule Kinesis.LocalstackTest do
 
     test "basic flow", %{conn: conn, stream_name: stream_name} = ctx do
       {:ok, conn, %{"FailedRecordCount" => 0}} =
-        Kinesis.api_put_records(conn, %{
+        Xinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
           "Records" =>
             Enum.map(1..10, fn i ->
@@ -252,13 +252,13 @@ defmodule Kinesis.LocalstackTest do
              }
            }
          ]
-       }} = Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
+       }} = Xinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
       starting_hash_key = String.to_integer(starting_hash_key)
       ending_hash_key = String.to_integer(ending_hash_key)
 
       assert {:ok, conn, %{}} =
-               Kinesis.api_split_shard(conn, %{
+               Xinesis.api_split_shard(conn, %{
                  "StreamName" => stream_name,
                  "ShardToSplit" => shard_id,
                  "NewStartingHashKey" =>
@@ -268,7 +268,7 @@ defmodule Kinesis.LocalstackTest do
       :ok = await_stream_active(ctx)
 
       {:ok, conn, %{"FailedRecordCount" => 0}} =
-        Kinesis.api_put_records(conn, %{
+        Xinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
           "Records" =>
             Enum.map(1..10, fn i ->
@@ -306,10 +306,10 @@ defmodule Kinesis.LocalstackTest do
                     "ShardId" => "shardId-000000000002"
                   }
                 ]
-              }} = Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
+              }} = Xinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
       assert {:ok, conn, %{}} =
-               Kinesis.api_merge_shards(conn, %{
+               Xinesis.api_merge_shards(conn, %{
                  "StreamName" => stream_name,
                  "ShardToMerge" => "shardId-000000000001",
                  "AdjacentShardToMerge" => "shardId-000000000002"
@@ -318,7 +318,7 @@ defmodule Kinesis.LocalstackTest do
       :ok = await_stream_active(ctx)
 
       {:ok, conn, %{"FailedRecordCount" => 0}} =
-        Kinesis.api_put_records(conn, %{
+        Xinesis.api_put_records(conn, %{
           "StreamName" => stream_name,
           "Records" =>
             Enum.map(1..10, fn i ->
@@ -330,10 +330,10 @@ defmodule Kinesis.LocalstackTest do
         })
 
       assert {:ok, conn, %{"Shards" => [_, _, _, _]}} =
-               Kinesis.api_list_shards(conn, %{"StreamName" => stream_name})
+               Xinesis.api_list_shards(conn, %{"StreamName" => stream_name})
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => shard_id,
                  "ShardIteratorType" => "TRIM_HORIZON"
@@ -347,13 +347,13 @@ defmodule Kinesis.LocalstackTest do
                 ],
                 "Records" => [_ | _]
               }} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 10,
                  "ShardIterator" => shard_iterator
                })
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_1}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000001",
                  "ShardIteratorType" => "TRIM_HORIZON"
@@ -373,13 +373,13 @@ defmodule Kinesis.LocalstackTest do
                 ],
                 "Records" => [_ | _]
               }} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 10,
                  "ShardIterator" => shard_iterator_child_1
                })
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_2}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000002",
                  "ShardIteratorType" => "TRIM_HORIZON"
@@ -399,20 +399,20 @@ defmodule Kinesis.LocalstackTest do
                 ],
                 "Records" => [_ | _]
               }} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 10,
                  "ShardIterator" => shard_iterator_child_2
                })
 
       assert {:ok, conn, %{"ShardIterator" => shard_iterator_child_3}} =
-               Kinesis.api_get_shard_iterator(conn, %{
+               Xinesis.api_get_shard_iterator(conn, %{
                  "StreamName" => stream_name,
                  "ShardId" => "shardId-000000000003",
                  "ShardIteratorType" => "TRIM_HORIZON"
                })
 
       assert {:ok, _conn, %{"NextShardIterator" => _, "Records" => [_ | _]}} =
-               Kinesis.api_get_records(conn, %{
+               Xinesis.api_get_records(conn, %{
                  "Limit" => 10,
                  "ShardIterator" => shard_iterator_child_3
                })
@@ -432,7 +432,7 @@ defmodule Kinesis.LocalstackTest do
 
   defp conn do
     {:ok, conn} =
-      Kinesis.connect(
+      Xinesis.connect(
         scheme: :http,
         host: "localhost",
         port: 4566,
@@ -457,14 +457,14 @@ defmodule Kinesis.LocalstackTest do
   defp create_stream(%{stream_name: stream_name} = ctx) do
     with_conn(fn conn ->
       {:ok, _, _} =
-        Kinesis.api_create_stream(conn, %{"StreamName" => stream_name, "ShardCount" => 1})
+        Xinesis.api_create_stream(conn, %{"StreamName" => stream_name, "ShardCount" => 1})
     end)
 
     on_exit(fn ->
       :ok = await_stream_active(ctx)
 
       with_conn(fn conn ->
-        {:ok, _, _} = Kinesis.api_delete_stream(conn, %{"StreamName" => stream_name})
+        {:ok, _, _} = Xinesis.api_delete_stream(conn, %{"StreamName" => stream_name})
       end)
     end)
   end
@@ -476,7 +476,7 @@ defmodule Kinesis.LocalstackTest do
 
         Enum.reduce_while(delays, conn, fn delay, conn ->
           {:ok, conn, resp} =
-            Kinesis.api_describe_stream_summary(conn, %{"StreamName" => stream_name})
+            Xinesis.api_describe_stream_summary(conn, %{"StreamName" => stream_name})
 
           %{"StreamDescriptionSummary" => %{"StreamStatus" => status}} = resp
 
@@ -495,7 +495,7 @@ defmodule Kinesis.LocalstackTest do
   defp create_table(%{table_name: table_name}) do
     with_conn(fn conn ->
       {:ok, _, _} =
-        Kinesis.dynamodb_create_table(conn, %{
+        Xinesis.dynamodb_create_table(conn, %{
           "TableName" => table_name,
           "KeySchema" => [
             %{
@@ -518,7 +518,7 @@ defmodule Kinesis.LocalstackTest do
 
     on_exit(fn ->
       with_conn(fn conn ->
-        {:ok, _, _} = Kinesis.dynamodb_delete_table(conn, %{"TableName" => table_name})
+        {:ok, _, _} = Xinesis.dynamodb_delete_table(conn, %{"TableName" => table_name})
       end)
     end)
 

@@ -1,4 +1,4 @@
-defmodule Kinesis do
+defmodule Xinesis do
   @moduledoc """
   Basic AWS Kinesis client.
   """
