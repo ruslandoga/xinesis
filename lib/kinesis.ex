@@ -185,11 +185,11 @@ defmodule Kinesis do
   @dialyzer {:no_improper_lists, headers: 3}
   defp headers(service, body, headers) do
     # TODO
-    access_key_id = "test"
+    access_key_id = System.fetch_env!("ACCESS_KEY_ID")
     # TODO
-    secret_access_key = "test"
+    secret_access_key = System.fetch_env!("SECRET_ACCESS_KEY")
     # TODO
-    region = "us-east-1"
+    region = "eu-north-1"
 
     utc_now = DateTime.utc_now(:second)
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
