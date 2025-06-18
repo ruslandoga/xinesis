@@ -40,15 +40,15 @@ defmodule Kinesis do
   for action <- kinesis_actions do
     @doc false
     def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
-      # these headers will be signed
-      headers = [
-        {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
-        {"content-type", "application/x-amz-json-1.1"},
-        {"host", conn.host}
-      ]
-
-      headers = [{"authorization", authorization("kinesis", headers)} | headers]
       json = JSON.encode_to_iodata!(payload)
+
+      headers =
+        headers("kinesis", json, [
+          {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
+          {"content-type", "application/x-amz-json-1.1"},
+          {"host", conn.host}
+        ])
+
       request(conn, headers, json, opts)
     end
   end
@@ -65,15 +65,15 @@ defmodule Kinesis do
   for action <- dynamodb_actions do
     @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
-      # these headers will be signed
-      headers = [
-        {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
-        {"content-type", "application/x-amz-json-1.0"},
-        {"host", conn.host}
-      ]
-
-      headers = [{"authorization", authorization("dynamodb", headers)} | headers]
       json = JSON.encode_to_iodata!(payload)
+
+      headers =
+        headers("dynamodb", json, [
+          {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
+          {"content-type", "application/x-amz-json-1.0"},
+          {"host", conn.host}
+        ])
+
       request(conn, headers, json, opts)
     end
   end
@@ -182,8 +182,8 @@ defmodule Kinesis do
     end
   end
 
-  @dialyzer {:no_improper_lists, authorization: 2}
-  defp authorization(service, headers) do
+  @dialyzer {:no_improper_lists, headers: 3}
+  defp headers(service, body, headers) do
     # TODO
     access_key_id = "test"
     # TODO
@@ -196,20 +196,25 @@ defmodule Kinesis do
     amz_short_date = String.slice(amz_date, 0, 8)
     scope = amz_short_date <> "/" <> region <> "/" <> service <> "/aws4_request"
 
-    headers = [{"x-amz-date", amz_date} | headers]
+    amz_content_sha256 = hex_sha256(body)
+
+    headers = [{"x-amz-content-sha256", amz_content_sha256}, {"x-amz-date", amz_date} | headers]
+    headers = Enum.sort_by(headers, fn {k, _} -> k end)
 
     signed_headers =
       headers
       |> Enum.map_intersperse(?;, fn {k, _} -> k end)
       |> IO.iodata_to_binary()
 
-    canonical_request = [
-      "POST\n/\n\n",
-      Enum.map(headers, fn {k, v} -> [k, ?:, v, ?\n] end),
-      ?\n,
-      signed_headers,
-      "\nUNSIGNED-PAYLOAD"
-    ]
+    canonical_request =
+      [
+        "POST\n/\n\n",
+        Enum.map(headers, fn {k, v} -> [k, ?:, v, ?\n] end),
+        ?\n,
+        signed_headers,
+        ?\n,
+        amz_content_sha256
+      ]
 
     string_to_sign = [
       "AWS4-HMAC-SHA256\n",
@@ -229,11 +234,14 @@ defmodule Kinesis do
 
     signature = hex_hmac_sha256(signing_key, string_to_sign)
 
-    """
-    AWS4-HMAC-SHA256 Credential=#{access_key_id}/#{scope},\
-    SignedHeaders=#{signed_headers},\
-    Signature=#{signature}\
-    """
+    authorization =
+      """
+      AWS4-HMAC-SHA256 Credential=#{access_key_id}/#{scope},\
+      SignedHeaders=#{signed_headers},\
+      Signature=#{signature}\
+      """
+
+    [{"authorization", authorization} | headers]
   end
 
   defp receive_response(conn, timeout) do
