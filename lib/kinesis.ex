@@ -268,6 +268,7 @@ defmodule Kinesis do
         [status, headers | data] when status >= 400 and status < 600 ->
           content_type = :proplists.get_value("content-type", headers, nil)
           error_type = :proplists.get_value("x-amzn-errortype", headers, nil)
+          data = IO.iodata_to_binary(data)
 
           # TODO
           error =
