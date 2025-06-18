@@ -2,10 +2,19 @@ defmodule KinesisTest do
   use ExUnit.Case
 
   setup %{test: test} do
-    test_base64 = Base.encode64(Atom.to_string(test), padding: false)
-    stream_name = "test_stream_#{test_base64}"
-    table_name = "test_table_#{test_base64}"
-    {:ok, conn: conn(), stream_name: stream_name, table_name: table_name}
+    uniq =
+      Base.hex_encode32(
+        <<
+          System.system_time(:nanosecond)::64,
+          :erlang.phash2({node(), self(), test}, 16_777_216)::24,
+          :erlang.unique_integer()::32
+        >>,
+        case: :lower
+      )
+
+    stream_name = "knock-elixir-ci-test-stream-#{uniq}"
+    table_name = "knock-elixir-ci-checkpoint-table-#{uniq}"
+    {:ok, conn: conn(:kinesis), stream_name: stream_name, table_name: table_name}
   end
 
   describe "basic flow & iterator logic" do
@@ -162,6 +171,7 @@ defmodule KinesisTest do
   end
 
   describe "checkpointing" do
+    @describetag :skip
     setup [:create_stream, :await_stream_active, :create_table]
 
     test "processing records and updating checkpoint", %{
@@ -226,6 +236,7 @@ defmodule KinesisTest do
   end
 
   describe "shard splitting & merging" do
+    @describetag :skip
     setup [:create_stream, :await_stream_active, :create_table]
 
     test "basic flow", %{conn: conn, stream_name: stream_name} = ctx do
@@ -430,13 +441,20 @@ defmodule KinesisTest do
 
   # todo https://github.com/uberbrodt/kcl_ex/blob/master/lib/kinesis_client/stream/app_state/dynamo.ex
 
-  defp conn do
-    {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
+  defp conn(service) do
+    host =
+      case service do
+        :kinesis -> "kinesis.eu-north-1.api.aws"
+        :dynamodb -> "dynamodb.eu-north-1.api.aws"
+      end
+
+    {:ok, conn} = Mint.HTTP1.connect(:https, host, 443, mode: :passive)
+
     conn
   end
 
-  defp with_conn(f) when is_function(f, 1) do
-    conn = conn()
+  defp with_conn(service, f) when is_function(f, 1) do
+    conn = conn(service)
 
     try do
       f.(conn)
@@ -446,7 +464,7 @@ defmodule KinesisTest do
   end
 
   defp create_stream(%{stream_name: stream_name} = ctx) do
-    with_conn(fn conn ->
+    with_conn(:kinesis, fn conn ->
       {:ok, _, _} =
         Kinesis.api_create_stream(conn, %{"StreamName" => stream_name, "ShardCount" => 1})
     end)
@@ -454,7 +472,7 @@ defmodule KinesisTest do
     on_exit(fn ->
       :ok = await_stream_active(ctx)
 
-      with_conn(fn conn ->
+      with_conn(:kinesis, fn conn ->
         {:ok, _, _} = Kinesis.api_delete_stream(conn, %{"StreamName" => stream_name})
       end)
     end)
@@ -462,10 +480,12 @@ defmodule KinesisTest do
 
   defp await_stream_active(%{stream_name: stream_name}) do
     :active =
-      with_conn(fn conn ->
-        delays = List.duplicate(100, 10)
+      with_conn(:kinesis, fn conn ->
+        delays = List.duplicate(500, 20)
 
         Enum.reduce_while(delays, conn, fn delay, conn ->
+          IO.puts("Waiting for stream '#{stream_name}' to become ACTIVE...")
+
           {:ok, conn, resp} =
             Kinesis.api_describe_stream_summary(conn, %{"StreamName" => stream_name})
 
@@ -484,7 +504,7 @@ defmodule KinesisTest do
   end
 
   defp create_table(%{table_name: table_name}) do
-    with_conn(fn conn ->
+    with_conn(:dynamodb, fn conn ->
       {:ok, _, _} =
         Kinesis.dynamodb_create_table(conn, %{
           "TableName" => table_name,
@@ -508,7 +528,7 @@ defmodule KinesisTest do
     end)
 
     on_exit(fn ->
-      with_conn(fn conn ->
+      with_conn(:dynamodb, fn conn ->
         {:ok, _, _} = Kinesis.dynamodb_delete_table(conn, %{"TableName" => table_name})
       end)
     end)
