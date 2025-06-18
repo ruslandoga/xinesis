@@ -1,4 +1,4 @@
-defmodule KinesisTest do
+defmodule Kinesis.LocalstackTest do
   use ExUnit.Case
 
   setup %{test: test} do
@@ -431,7 +431,16 @@ defmodule KinesisTest do
   # todo https://github.com/uberbrodt/kcl_ex/blob/master/lib/kinesis_client/stream/app_state/dynamo.ex
 
   defp conn do
-    {:ok, conn} = Mint.HTTP1.connect(:http, "localhost", 4566, mode: :passive)
+    {:ok, conn} =
+      Kinesis.connect(
+        scheme: :http,
+        host: "localhost",
+        port: 4566,
+        region: "us-east-1",
+        access_key_id: "test",
+        secret_access_key: "test"
+      )
+
     conn
   end
 

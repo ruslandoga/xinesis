@@ -19,6 +19,25 @@ defmodule Kinesis do
     end
   end
 
+  def connect(opts \\ []) do
+    scheme = Keyword.fetch!(opts, :scheme)
+    host = Keyword.fetch!(opts, :host)
+    port = Keyword.fetch!(opts, :port)
+    access_key_id = Keyword.fetch!(opts, :access_key_id)
+    secret_access_key = Keyword.fetch!(opts, :secret_access_key)
+    region = Keyword.fetch!(opts, :region)
+
+    client = %{
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region
+    }
+
+    with {:ok, conn} <- HTTP.connect(scheme, host, port, mode: :passive) do
+      {:ok, HTTP.put_private(conn, :client, client)}
+    end
+  end
+
   # https://docs.aws.amazon.com/kinesis/latest/APIReference/Welcome.html
   kinesis_actions = [
     "create_stream",
@@ -40,10 +59,11 @@ defmodule Kinesis do
   for action <- kinesis_actions do
     @doc false
     def unquote(:"api_#{action}")(conn, payload, opts \\ []) do
+      client = HTTP.get_private(conn, :client)
       json = JSON.encode_to_iodata!(payload)
 
       headers =
-        headers("kinesis", json, [
+        headers(client, "kinesis", json, [
           {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
           {"content-type", "application/x-amz-json-1.1"},
           {"host", conn.host}
@@ -65,10 +85,11 @@ defmodule Kinesis do
   for action <- dynamodb_actions do
     @doc false
     def unquote(:"dynamodb_#{action}")(conn, payload, opts \\ []) do
+      client = HTTP.get_private(conn, :client)
       json = JSON.encode_to_iodata!(payload)
 
       headers =
-        headers("dynamodb", json, [
+        headers(client, "dynamodb", json, [
           {"x-amz-target", unquote("DynamoDB_20120810.#{Macro.camelize(action)}")},
           {"content-type", "application/x-amz-json-1.0"},
           {"host", conn.host}
@@ -182,14 +203,13 @@ defmodule Kinesis do
     end
   end
 
-  @dialyzer {:no_improper_lists, headers: 3}
-  defp headers(service, body, headers) do
-    # TODO
-    access_key_id = "test"
-    # TODO
-    secret_access_key = "test"
-    # TODO
-    region = "us-east-1"
+  @dialyzer {:no_improper_lists, headers: 4}
+  defp headers(client, service, body, headers) do
+    %{
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region
+    } = client
 
     utc_now = DateTime.utc_now(:second)
     amz_date = Calendar.strftime(utc_now, "%Y%m%dT%H%M%SZ")
