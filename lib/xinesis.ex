@@ -32,6 +32,15 @@ defmodule Xinesis do
         true -> raise ArgumentError, "either :stream_arn or :stream_name must be provided"
       end
 
+    processor = Keyword.fetch!(opts, :processor)
+
+    unless is_function(processor, 3) do
+      raise ArgumentError,
+            "processor must be a function that accepts three arguments: shard_id, records, and config"
+    end
+
+    processor_config = Keyword.get(opts, :processor_config)
+
     state = %{
       scheme: scheme,
       host: host,
@@ -42,29 +51,71 @@ defmodule Xinesis do
       stream: stream,
       backoff: 0,
       conn: nil,
-      conn_monitor: nil
+      conn_monitor: nil,
+      processor: processor,
+      processor_config: processor_config,
+      shards: %{}
     }
 
     {:ok, state, {:continue, :connect}}
   end
 
+  defp inc_backoff(%{backoff: backoff} = state) do
+    # TODO jitter
+    backoff =
+      case backoff do
+        0 -> :rand.uniform(300)
+        _ -> min(backoff * 2, :timer.seconds(1))
+      end
+
+    Logger.debug("Increasing backoff to #{backoff} ms")
+    %{state | backoff: backoff}
+  end
+
+  defp reset_backoff(state) do
+    Logger.debug("Resetting backoff")
+    %{state | backoff: 0}
+  end
+
+  defp sleep_backoff(state) do
+    backoff = state.backoff
+
+    if backoff > 0 do
+      Logger.debug("Sleeping for #{backoff} ms before next attempt")
+      :timer.sleep(backoff)
+    end
+
+    :ok
+  end
+
   @impl true
   def handle_continue(:connect, state) do
+    sleep_backoff(state)
+
     case connect(state) do
       {:ok, conn} ->
-        # TODO
+        # TODO ssl
         conn_monitor = :inet.monitor(conn.socket)
+        state = reset_backoff(state)
+
+        Logger.info("Connected to Kinesis service at #{state.host}:#{state.port}")
 
         {:noreply, %{state | conn: conn, conn_monitor: conn_monitor},
          {:continue, :await_stream_active}}
 
       {:error, reason} ->
-        {:noreply, state, {:continue, :connect}}
+        Logger.error(
+          "Failed to connect to Kinesis service at #{state.host}:#{state.port} - #{inspect(reason)}"
+        )
+
+        {:noreply, inc_backoff(state), {:continue, :connect}}
     end
   end
 
   def handle_continue(:await_stream_active, state) do
-    %{conn: conn, backoff: backoff, stream: stream} = state
+    sleep_backoff(state)
+
+    %{conn: conn, stream: stream} = state
 
     payload =
       case stream do
@@ -75,17 +126,339 @@ defmodule Xinesis do
     # TODO timeout?
     case Xinesis.api_describe_stream_summary(conn, payload) do
       {:ok, conn, %{"StreamDescriptionSummary" => %{"StreamStatus" => status}}} ->
+        state = %{state | conn: conn}
+
         if status == "ACTIVE" do
-          {:noreply, %{state | conn: conn}, {:continue, :list_shards}}
+          Logger.debug("Stream is now active, status: #{status}")
+          {:noreply, reset_backoff(state), {:continue, :list_shards}}
         else
-          {:noreply, state, {:continue, :await_stream_active}}
+          Logger.info("Stream is not active yet, current status: #{status}")
+          {:noreply, inc_backoff(state), {:continue, :await_stream_active}}
         end
 
-      {:error, reason} ->
-        nil
+      {:error, conn, reason} ->
+        Logger.error("Failed to describe stream: #{inspect(reason)}")
+        state = %{state | conn: conn}
+        {:noreply, inc_backoff(state), {:continue, :await_stream_active}}
+
+      {:disconnect, conn, reason} ->
+        Logger.error(
+          "Connection lost while waiting for stream to become active: #{inspect(reason)}"
+        )
+
+        :inet.cancel_monitor(state.conn_monitor)
+        {:ok, conn} = HTTP.close(conn)
+        state = %{state | conn: conn, conn_monitor: nil}
+        {:noreply, reset_backoff(state), {:continue, :connect}}
     end
+  end
+
+  def handle_continue(:list_shards, state) do
+    sleep_backoff(state)
+
+    %{conn: conn, stream: stream} = state
+
+    payload =
+      case stream do
+        {:arn, arn} -> %{"StreamARN" => arn}
+        {:name, name} -> %{"StreamName" => name}
+      end
+
+    # TODO NextToken
+    case Xinesis.api_list_shards(conn, payload) do
+      {:ok, conn, %{"Shards" => shards} = response} ->
+        Logger.debug("Listed shards: #{inspect(response)}")
+
+        shards =
+          Map.new(shards, fn shard ->
+            %{"ShardId" => shard_id} = shard
+            parent_shard_id = Map.get(shard, "ParentShardId")
+            adjacent_parent_shard_id = Map.get(shard, "AdjacentParentShardId")
+            parents = Enum.reject([parent_shard_id, adjacent_parent_shard_id], &is_nil/1)
+            {shard_id, parents}
+          end)
+
+        {:noreply, reset_backoff(%{state | conn: conn, shards: shards}),
+         {:continue, :spawn_processors}}
+
+      {:error, conn, reason} ->
+        Logger.error("Failed to list shards: #{inspect(reason)}")
+        {:noreply, inc_backoff(%{state | conn: conn}), {:continue, :list_shards}}
+
+      {:disconnect, conn, reason} ->
+        Logger.error("Connection lost while listing shards: #{inspect(reason)}")
+        :inet.cancel_monitor(state.conn_monitor)
+        {:ok, conn} = HTTP.close(conn)
+        state = %{state | conn: conn, conn_monitor: nil}
+        {:noreply, reset_backoff(state), {:continue, :connect}}
+    end
+  end
+
+  def handle_continue(:spawn_processors, state) do
+    # TODO what to do with conn?
+    {:noreply, spawn_processors(state)}
+  end
+
+  defp spawn_processors(state) do
+    shards =
+      Map.new(state.shards, fn {shard_id, status} ->
+        case status do
+          _no_parents_no_pid = [] -> {shard_id, spawn_processor(shard_id, state)}
+          _ -> {shard_id, status}
+        end
+      end)
+
+    %{state | shards: shards}
+  end
+
+  defp spawn_processor(shard_id, parent_state) do
+    %{
+      scheme: scheme,
+      host: host,
+      port: port,
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key,
+      region: region,
+      stream: stream,
+      processor: processor,
+      processor_config: processor_config
+    } = parent_state
+
+    child_state =
+      %{
+        shard_id: shard_id,
+        scheme: scheme,
+        host: host,
+        port: port,
+        access_key_id: access_key_id,
+        secret_access_key: secret_access_key,
+        region: region,
+        stream: stream,
+        processor: processor,
+        processor_config: processor_config,
+        conn: nil,
+        backoff: 0,
+        iterator: nil
+      }
+
+    :proc_lib.spawn_opt(__MODULE__, :processor, [child_state], [{:monitor, [{:tag, shard_id}]}])
+  end
+
+  @impl true
+  def handle_info({{:DOWN, shard_id}, _ref, :process, _pid, reason}, state) do
+    state =
+      case reason do
+        {:completed, child_shards} ->
+          Logger.info(
+            "Processor for shard #{shard_id} completed with child shards: #{inspect(child_shards)}"
+          )
+
+          # TODO update state.shards
+          shards =
+            Map.new(state.shards, fn {id, status} ->
+              if is_list(status) do
+                {id, List.delete(status, shard_id)}
+              else
+                {id, status}
+              end
+            end)
+
+          spawn_processors(%{state | shards: shards})
+
+          # TODO other cases like lost lease, etc.
+      end
 
     {:noreply, state}
+  end
+
+  @doc false
+  def processor(state) do
+    processor_connect(state)
+  end
+
+  defp processor_connect(state) do
+    sleep_backoff(state)
+
+    case connect(state) do
+      {:ok, conn} ->
+        state = %{state | conn: conn}
+        processor_get_shard_iterator(reset_backoff(state))
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to connect processor for shard #{state.shard_id}: #{inspect(reason)}"
+        )
+
+        processor_connect(inc_backoff(state))
+    end
+  end
+
+  defp processor_get_shard_iterator(state) do
+    sleep_backoff(state)
+
+    %{conn: conn, shard_id: shard_id, stream: stream} = state
+
+    payload = %{
+      "ShardId" => shard_id,
+      # TODO AFTER_SEQUENCE_NUMBER if checkpoint is provided
+      "ShardIteratorType" => "TRIM_HORIZON",
+      "StreamARN" =>
+        case stream do
+          {:arn, arn} -> arn
+          {:name, _name} -> nil
+        end,
+      "StreamName" =>
+        case stream do
+          {:arn, _arn} -> nil
+          {:name, name} -> name
+        end
+    }
+
+    case Xinesis.api_get_shard_iterator(conn, payload) do
+      {:ok, conn, %{"ShardIterator" => iterator}} ->
+        processor_loop_get_records(reset_backoff(%{state | conn: conn, iterator: iterator}))
+
+      {:error, conn, reason} ->
+        Logger.error("Failed to get shard iterator for #{shard_id}: #{inspect(reason)}")
+        processor_get_shard_iterator(inc_backoff(%{state | conn: conn}))
+
+      {:disconnect, conn, reason} ->
+        Logger.error("Connection lost while getting shard iterator: #{inspect(reason)}")
+        {:ok, conn} = HTTP.close(conn)
+        state = %{state | conn: conn}
+        processor_connect(reset_backoff(state))
+    end
+  end
+
+  defp processor_loop_get_records(state) do
+    sleep_backoff(state)
+
+    %{
+      conn: conn,
+      stream: stream,
+      shard_id: shard_id,
+      iterator: iterator,
+      processor: processor,
+      processor_config: processor_config
+    } = state
+
+    processor_state = %{
+      conn: conn,
+      stream: stream,
+      shard_id: shard_id,
+      iterator: iterator,
+      processor: processor,
+      processor_config: processor_config
+    }
+
+    {pid, ref} =
+      :proc_lib.spawn_opt(__MODULE__, :processor_get_records, [processor_state], [:monitor])
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        case reason do
+          {:continue, conn, _result, next_iterator} ->
+            processor_loop_get_records(
+              reset_backoff(%{state | conn: conn, iterator: next_iterator})
+            )
+
+          {:empty, conn, next_iterator} ->
+            processor_loop_get_records(
+              inc_backoff(%{state | conn: conn, iterator: next_iterator})
+            )
+
+          # TODO
+          {:error, conn, reason, next_iterator} ->
+            Logger.error("Unexpected error in processor loop: #{inspect(reason)}")
+
+            processor_loop_get_records(
+              reset_backoff(%{state | conn: conn, iterator: next_iterator})
+            )
+
+          {:completed, _child_shards} = completed ->
+            exit(completed)
+
+          {:error, conn, reason} ->
+            Logger.error("Processor for shard #{shard_id} failed: #{inspect(reason)}")
+            processor_loop_get_records(inc_backoff(%{state | conn: conn}))
+
+          {:disconnect, conn, reason} ->
+            Logger.error("Connection lost while processing records: #{inspect(reason)}")
+            {:ok, conn} = HTTP.close(conn)
+            %{state | conn: conn}
+            processor_connect(reset_backoff(state))
+        end
+
+      # TODO could be shutdown and stuff
+      other ->
+        # TODO
+        raise "Unexpected message in processor loop: #{inspect(other)}"
+
+        # TODO after timeout?
+    end
+  end
+
+  @doc false
+  def processor_get_records(state) do
+    %{
+      conn: conn,
+      stream: stream,
+      shard_id: shard_id,
+      iterator: iterator,
+      processor: processor,
+      processor_config: processor_config
+    } = state
+
+    # TODO Limit?
+    payload = %{
+      "ShardIterator" => iterator,
+      "StreamARN" =>
+        case stream do
+          {:arn, arn} -> arn
+          {:name, _name} -> nil
+        end,
+      "StreamName" =>
+        case stream do
+          {:arn, _arn} -> nil
+          {:name, name} -> name
+        end
+    }
+
+    case Xinesis.api_get_records(conn, payload) do
+      # TODO MillisBehindLatest
+      {:ok, conn, response} ->
+        Logger.debug("Received records for shard #{shard_id}: #{inspect(response)}")
+
+        case response do
+          %{"NextShardIterator" => next_iterator, "Records" => [_ | _] = records} ->
+            Logger.warning("Processing records for shard #{shard_id}: #{inspect(records)}")
+
+            {kind, result} =
+              try do
+                processor.(shard_id, records, processor_config)
+              catch
+                kind, reason -> {:error, {kind, reason, __STACKTRACE__}}
+              else
+                result -> {:continue, result}
+              end
+
+            Logger.warning("Processed records for shard #{shard_id}: #{inspect(result)}")
+
+            exit({kind, conn, result, next_iterator})
+
+          %{"NextShardIterator" => next_iterator, "Records" => []} ->
+            exit({:empty, conn, next_iterator})
+
+          %{"ChildShards" => child_shards} ->
+            exit({:completed, child_shards})
+        end
+
+      {:error, _conn, _reason} = error ->
+        exit(error)
+
+      {:disconnect, _conn, _reason} = error ->
+        exit(error)
+    end
   end
 
   defmodule Error do
@@ -101,7 +474,7 @@ defmodule Xinesis do
     end
   end
 
-  def connect(state) do
+  def connect(state) when is_map(state) do
     %{
       scheme: scheme,
       host: host,
@@ -284,7 +657,7 @@ defmodule Xinesis do
   defp send_request(conn, headers, body) do
     case HTTP.request(conn, "POST", "/", headers, body) do
       {:ok, _conn, _ref} = ok -> ok
-      {:error, conn, reason} -> {:disconnect, reason, conn}
+      {:error, conn, reason} -> {:disconnect, conn, reason}
     end
   end
 
@@ -391,7 +764,7 @@ defmodule Xinesis do
               )
             end
 
-          {:error, error, conn}
+          {:error, conn, error}
       end
     end
   end
@@ -405,7 +778,7 @@ defmodule Xinesis do
         end
 
       {:error, conn, reason, _responses} ->
-        {:disconnect, reason, conn}
+        {:disconnect, conn, reason}
     end
   end
 
