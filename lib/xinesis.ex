@@ -68,12 +68,10 @@ defmodule Xinesis do
         _ -> min(backoff * 2, :timer.seconds(1))
       end
 
-    Logger.debug("Increasing backoff to #{backoff} ms")
     %{state | backoff: backoff}
   end
 
   defp reset_backoff(state) do
-    Logger.debug("Resetting backoff")
     %{state | backoff: 0}
   end
 
@@ -241,6 +239,7 @@ defmodule Xinesis do
         iterator: nil
       }
 
+    # TODO actually need to link
     :proc_lib.spawn_opt(__MODULE__, :processor, [child_state], [{:monitor, [{:tag, shard_id}]}])
   end
 
@@ -351,6 +350,7 @@ defmodule Xinesis do
       processor_config: processor_config
     }
 
+    # TODO link as well
     {pid, ref} =
       :proc_lib.spawn_opt(__MODULE__, :processor_get_records, [processor_state], [:monitor])
 
@@ -431,8 +431,6 @@ defmodule Xinesis do
 
         case response do
           %{"NextShardIterator" => next_iterator, "Records" => [_ | _] = records} ->
-            Logger.warning("Processing records for shard #{shard_id}: #{inspect(records)}")
-
             {kind, result} =
               try do
                 processor.(shard_id, records, processor_config)
@@ -441,8 +439,6 @@ defmodule Xinesis do
               else
                 result -> {:continue, result}
               end
-
-            Logger.warning("Processed records for shard #{shard_id}: #{inspect(result)}")
 
             exit({kind, conn, result, next_iterator})
 
