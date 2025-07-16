@@ -8,6 +8,46 @@ defmodule Xinesis.LocalstackTest do
     {:ok, conn: conn(), stream_name: stream_name, table_name: table_name}
   end
 
+  test "it works", ctx do
+    create_stream(ctx, shard_count: 2)
+
+    test = self()
+
+    {:ok, xinesis} =
+      Xinesis.start_link(
+        scheme: :http,
+        host: "localhost",
+        port: 4566,
+        region: "us-east-1",
+        access_key_id: "test",
+        secret_access_key: "test",
+        stream_name: ctx.stream_name,
+        processor: fn shard_id, records, nil ->
+          send(test, {:process, shard_id, records})
+        end
+      )
+
+    :ok = await_stream_active(ctx)
+
+    {:ok, _conn, _} =
+      Xinesis.api_put_records(ctx.conn, %{
+        "StreamName" => ctx.stream_name,
+        "Records" => [
+          %{"Data" => Base.encode64("test-data-1"), "PartitionKey" => "key-1"},
+          %{"Data" => Base.encode64("test-data-2"), "PartitionKey" => "key-2"}
+        ]
+      })
+
+    assert_receive {:process, "shardId-000000000000", [%{"PartitionKey" => "key-1"}]},
+                   _timeout = :timer.seconds(1)
+
+    assert_receive {:process, "shardId-000000000001", [%{"PartitionKey" => "key-2"}]},
+                   _timeout = :timer.seconds(1)
+
+    # TODO
+    Process.exit(xinesis, :shutdown)
+  end
+
   describe "basic flow & iterator logic" do
     setup [:create_stream, :await_stream_active]
 
@@ -432,14 +472,14 @@ defmodule Xinesis.LocalstackTest do
 
   defp conn do
     {:ok, conn} =
-      Xinesis.connect(
+      Xinesis.connect(%{
         scheme: :http,
         host: "localhost",
         port: 4566,
         region: "us-east-1",
         access_key_id: "test",
         secret_access_key: "test"
-      )
+      })
 
     conn
   end
@@ -454,10 +494,13 @@ defmodule Xinesis.LocalstackTest do
     end
   end
 
-  defp create_stream(%{stream_name: stream_name} = ctx) do
+  defp create_stream(%{stream_name: stream_name} = ctx, opts \\ []) do
     with_conn(fn conn ->
       {:ok, _, _} =
-        Xinesis.api_create_stream(conn, %{"StreamName" => stream_name, "ShardCount" => 1})
+        Xinesis.api_create_stream(conn, %{
+          "StreamName" => stream_name,
+          "ShardCount" => opts[:shard_count] || 1
+        })
     end)
 
     on_exit(fn ->
