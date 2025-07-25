@@ -335,7 +335,6 @@ defmodule Xinesis do
   defp handle_responses([], acc), do: {:more, acc}
 
   # TODO also consider connect timeout
-  # TODO
   defp timeout(_conn, opts), do: Keyword.get(opts, :timeout, :timer.seconds(5))
 
   defp hex(value), do: Base.encode16(value, case: :lower)
