@@ -1,0 +1,14 @@
+services:
+  localstack:
+    image: localstack/localstack:4.4.0
+    ports:
+      - 4566:4566
+    environment:
+      SERVICES: kinesis,dynamodb
+      KINESIS_LATENCY: ${KINESIS_LATENCY:-0}
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+volumes:
+  localstack_data:
+    
