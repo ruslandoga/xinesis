@@ -150,9 +150,15 @@ defmodule Xinesis.AWS do
   defp hex_hmac_sha256(secret, value), do: hex(hmac_sha256(secret, value))
 
   defp request(conn, headers, body, opts) do
-    with {:ok, conn, _ref} <- send_request(conn, headers, body) do
-      timeout = Keyword.get(opts, :timeout, :timer.seconds(5))
-      receive_response(conn, timeout)
+    result =
+      with {:ok, conn, _ref} <- send_request(conn, headers, body) do
+        timeout = Keyword.get(opts, :timeout, :timer.seconds(5))
+        receive_response(conn, timeout)
+      end
+
+    with {:disconnect, conn, reason} <- result do
+      HTTP.close(conn)
+      {:disconnect, reason}
     end
   end
 
