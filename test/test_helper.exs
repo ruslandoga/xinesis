@@ -20,4 +20,4 @@ unless localstack_available? do
   System.halt(1)
 end
 
-ExUnit.start()
+ExUnit.start(exclude: [:aws])
