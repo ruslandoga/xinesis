@@ -49,7 +49,7 @@ defmodule Xinesis.LocalStackTest do
              AWS.get_shard_iterator(conn, %{
                "StreamARN" => stream_arn,
                "ShardId" => "shardId-000000000000",
-               "ShardIteratorType" => "TRIM_HORIZON"
+               "ShardIteratorType" => "LATEST"
              })
 
     assert %{"ShardIterator" => shard_iterator} = get_shard_iterator_response
