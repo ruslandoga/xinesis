@@ -22,17 +22,21 @@ defmodule Xinesis.Coordinator do
 
   @impl true
   def init(opts) do
-    scheme = Keyword.fetch!(opts, :scheme)
-    host = Keyword.fetch!(opts, :host)
-    port = Keyword.get(opts, :port)
-    access_key_id = Keyword.fetch!(opts, :access_key_id)
-    secret_access_key = Keyword.fetch!(opts, :secret_access_key)
-    region = Keyword.fetch!(opts, :region)
+    registry = Keyword.fetch!(opts, :registry)
+    shard_supervisor = Keyword.fetch!(opts, :shard_supervisor)
+    config = Keyword.fetch!(opts, :config)
 
-    stream_arn = Keyword.fetch!(opts, :stream_arn)
+    scheme = Keyword.fetch!(config, :scheme)
+    host = Keyword.fetch!(config, :host)
+    port = Keyword.get(config, :port)
+    access_key_id = Keyword.fetch!(config, :access_key_id)
+    secret_access_key = Keyword.fetch!(config, :secret_access_key)
+    region = Keyword.fetch!(config, :region)
 
-    backoff_base = Keyword.get(opts, :backoff_base, 100)
-    backoff_max = Keyword.get(opts, :backoff_max, 5000)
+    stream_arn = Keyword.fetch!(config, :stream_arn)
+
+    backoff_base = Keyword.get(config, :backoff_base, 100)
+    backoff_max = Keyword.get(config, :backoff_max, 5000)
 
     data = %{
       client: [
@@ -45,7 +49,9 @@ defmodule Xinesis.Coordinator do
       ],
       stream_arn: stream_arn,
       backoff_base: backoff_base,
-      backoff_max: backoff_max
+      backoff_max: backoff_max,
+      registry: registry,
+      shard_supervisor: shard_supervisor
     }
 
     {:ok, :disconnected, data, {:next_event, :internal, {:connect, 0}}}
@@ -80,8 +86,7 @@ defmodule Xinesis.Coordinator do
         # CREATING | DELETING | ACTIVE | UPDATING
         # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_StreamDescriptionSummary.html#Streams-Type-StreamDescriptionSummary-StreamStatus
         if stream_status == "ACTIVE" do
-          # TODO of {:active, conn}?
-          {:next_state, {:connected, conn}, data, {:next_event, :internal, :list_shards}}
+          {:next_state, {:active, conn}, data, {:next_event, :internal, :list_shards}}
         else
           Logger.info("Stream is not active yet: #{stream_status}")
           {:next_state, {:connected, conn}, data, {{:timeout, :wait_stream}, :timer.seconds(1)}}
@@ -101,7 +106,7 @@ defmodule Xinesis.Coordinator do
     {:keep_state_and_data, {:next_event, :internal, :wait_stream}}
   end
 
-  def handle_event(:internal, {:list_shards, failure_count}, {:connected, conn}, data) do
+  def handle_event(:internal, {:list_shards, failure_count}, {:active, conn}, data) do
     %{stream_arn: stream_arn} = data
 
     case list_all_shards(conn, stream_arn) do
@@ -115,7 +120,7 @@ defmodule Xinesis.Coordinator do
             {shard_id, parents}
           end)
 
-        {:next_state, {:connected, conn}, data,
+        {:next_state, {:active, conn}, data,
          {:next_event, :internal, {:start_processors, shards}}}
 
       {:error, conn, reason} ->
@@ -132,15 +137,33 @@ defmodule Xinesis.Coordinator do
     end
   end
 
-  def handle_event({:timeout, :list_shards}, failure_count, {:connected, _conn}, _data) do
+  def handle_event({:timeout, :list_shards}, failure_count, {:active, _conn}, _data) do
     {:keep_state_and_data, {:next_event, :internal, {:list_shards, failure_count}}}
   end
 
-  def handle_event(:internal, {:start_processors, shards}, {:connected, conn}, data) do
-    %{stream_arn: _stream_arn} = data
-    # TODO?
+  def handle_event(:internal, {:start_processors, shards}, {:active, conn}, data) do
+    %{
+      registry: registry,
+      shard_supervisor: shard_supervisor,
+      client: client,
+      stream_arn: stream_arn,
+      backoff_base: backoff_base,
+      backoff_max: backoff_max
+    } = data
 
-    # TODO schedule shard listing every ~5 minutes
+    for {shard_id, []} <- shards do
+      DynamicSupervisor.start_child(
+        shard_supervisor,
+        {Xinesis.Processor,
+         name: {:via, Registry, {registry, shard_id}},
+         client: client,
+         stream_arn: stream_arn,
+         shard_id: shard_id,
+         backoff_base: backoff_base,
+         backoff_max: backoff_max}
+      )
+    end
+
     {:next_state, {:processing, conn, shards}, data}
   end
 

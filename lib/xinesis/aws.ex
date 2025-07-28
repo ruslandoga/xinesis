@@ -26,6 +26,7 @@ defmodule Xinesis.AWS do
     scheme = Keyword.fetch!(opts, :scheme)
     host = Keyword.fetch!(opts, :host)
 
+    # TODO
     default_port =
       case scheme do
         :http -> 80

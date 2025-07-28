@@ -27,7 +27,9 @@ defmodule Xinesis.MixProject do
       {:mint, "~> 1.7"},
       {:telemetry, "~> 1.0"},
       {:nimble_options, "~> 1.0"},
-      {:broadway, "~> 1.2"}
+      {:broadway, "~> 1.2"},
+      {:aws, "~> 1.0", optional: true},
+      {:ex_aws_dynamo, "~> 4.2", optional: true}
     ]
   end
 end
