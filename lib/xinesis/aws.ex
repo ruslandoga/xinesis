@@ -11,7 +11,7 @@ defmodule Xinesis.AWS do
 
   defmodule Client do
     @moduledoc false
-    defstruct [:access_key_id, :secret_access_key, :region]
+    defstruct [:access_key_id, :secret_access_key, :region, :host]
 
     defimpl Inspect do
       import Inspect.Algebra
@@ -41,7 +41,8 @@ defmodule Xinesis.AWS do
     client = %Client{
       access_key_id: access_key_id,
       secret_access_key: secret_access_key,
-      region: region
+      region: region,
+      host: host
     }
 
     with {:ok, conn} <- HTTP.connect(scheme, host, port, mode: :passive) do
@@ -68,14 +69,13 @@ defmodule Xinesis.AWS do
   for action <- actions do
     @doc false
     def unquote(:"#{action}")(conn, payload, opts \\ []) do
-      client = HTTP.get_private(conn, :client)
+      client = HTTP.get_private(conn, :client) || raise "AWS client not found in Mint connection"
       json = JSON.encode_to_iodata!(payload)
 
       headers =
         headers(client, _service = "kinesis", json, [
           {"x-amz-target", unquote("Kinesis_20131202.#{Macro.camelize(action)}")},
-          {"content-type", "application/x-amz-json-1.1"},
-          {"host", conn.host}
+          {"content-type", "application/x-amz-json-1.1"}
         ])
 
       request(conn, headers, json, opts)
@@ -87,7 +87,8 @@ defmodule Xinesis.AWS do
     %{
       access_key_id: access_key_id,
       secret_access_key: secret_access_key,
-      region: region
+      region: region,
+      host: host
     } = client
 
     utc_now = DateTime.utc_now(:second)
@@ -97,7 +98,12 @@ defmodule Xinesis.AWS do
 
     amz_content_sha256 = hex_sha256(body)
 
-    headers = [{"x-amz-content-sha256", amz_content_sha256}, {"x-amz-date", amz_date} | headers]
+    headers = [
+      {"host", host},
+      {"x-amz-content-sha256", amz_content_sha256},
+      {"x-amz-date", amz_date} | headers
+    ]
+
     headers = Enum.sort_by(headers, fn {k, _} -> k end)
 
     signed_headers =
