@@ -195,6 +195,7 @@ defmodule Xinesis.Coordinator do
       )
     end
 
+    # TODO keep polling for new shards
     {:next_state, {:processing, conn, shards}, data}
   end
 
