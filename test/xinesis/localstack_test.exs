@@ -2,6 +2,8 @@ defmodule Xinesis.LocalStackTest do
   use ExUnit.Case
   alias Xinesis.AWS
 
+  @moduletag :localstack
+
   @localstack_kinesis [
     scheme: :http,
     host: "localhost",
@@ -11,7 +13,7 @@ defmodule Xinesis.LocalStackTest do
     secret_access_key: "test"
   ]
 
-  setup_all do
+  setup do
     stream = "aws-api-test-stream"
 
     Xinesis.Test.with_conn(
@@ -45,7 +47,7 @@ defmodule Xinesis.LocalStackTest do
     {:ok, conn: conn}
   end
 
-  test "connect and make some requests", %{conn: conn, stream_arn: stream_arn} do
+  test "PutRecord and GetRecords", %{conn: conn, stream_arn: stream_arn} do
     assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
              AWS.get_shard_iterator(conn, %{
                "StreamARN" => stream_arn,
@@ -79,15 +81,7 @@ defmodule Xinesis.LocalStackTest do
             %{
               "MillisBehindLatest" => 0,
               "NextShardIterator" => _next_shard_iterator,
-              # TODO why not empty?
-              "Records" => [
-                %{
-                  "ApproximateArrivalTimestamp" => _,
-                  "Data" => "AA==",
-                  "PartitionKey" => "test-key",
-                  "SequenceNumber" => ^sequence_number
-                }
-              ]
+              "Records" => []
             }} =
              AWS.get_records(conn, %{"ShardIterator" => next_shard_iterator})
   end
@@ -97,14 +91,14 @@ defmodule Xinesis.LocalStackTest do
              AWS.put_record(conn, %{
                "StreamARN" => stream_arn,
                "Data" => "AA==",
-               "PartitionKey" => "test-key"
+               "PartitionKey" => "test-key-0"
              })
 
-    assert {:ok, conn, %{"SequenceNumber" => sequence_number_2}} =
+    assert {:ok, conn, %{"SequenceNumber" => _sequence_number_2}} =
              AWS.put_record(conn, %{
                "StreamARN" => stream_arn,
                "Data" => "AQ==",
-               "PartitionKey" => "test-key"
+               "PartitionKey" => "test-key-1"
              })
 
     assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
@@ -119,8 +113,9 @@ defmodule Xinesis.LocalStackTest do
             %{
               "MillisBehindLatest" => 0,
               "NextShardIterator" => _next_shard_iterator,
-              # TODO why empty?
-              "Records" => []
+              "Records" => [
+                %{"Data" => "AQ==", "PartitionKey" => "test-key-1"}
+              ]
             }} =
              AWS.get_records(conn, %{"ShardIterator" => shard_iterator})
   end

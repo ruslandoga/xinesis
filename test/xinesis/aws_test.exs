@@ -20,8 +20,8 @@ defmodule Xinesis.AWSTest do
 
     stream = "knock-elixir-ci-test-stream-api-test"
 
-    # assert {:ok, conn, nil} =
-    #          AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
+    assert {:ok, conn, nil} =
+             AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
 
     # on_exit(fn ->
     #   Xinesis.Test.with_conn(
@@ -74,7 +74,7 @@ defmodule Xinesis.AWSTest do
     assert {:ok, conn, put_record_response} =
              AWS.put_record(conn, %{
                "StreamARN" => stream_arn,
-               "Data" => "testdata",
+               "Data" => "AA==",
                "PartitionKey" => "test-key"
              })
 
@@ -92,7 +92,7 @@ defmodule Xinesis.AWSTest do
              "Records" => [
                %{
                  "ApproximateArrivalTimestamp" => _,
-                 "Data" => "testdata",
+                 "Data" => "AA==",
                  "PartitionKey" => "test-key",
                  "SequenceNumber" => ^sequence_number
                }

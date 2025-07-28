@@ -2,6 +2,8 @@ defmodule Xinesis.SomeOtherTest do
   use ExUnit.Case
   alias Xinesis.AWS
 
+  @moduletag :localstack
+
   @localstack_kinesis [
     scheme: :http,
     host: "localhost",
