@@ -15,6 +15,14 @@ defmodule Xinesis.Coordinator do
     end
   end
 
+  @doc false
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]}
+    }
+  end
+
   @impl true
   def callback_mode do
     :handle_event_function

@@ -2,33 +2,26 @@ defmodule Xinesis.AWSTest do
   use ExUnit.Case
   alias Xinesis.AWS
 
+  @localstack_kinesis [
+    scheme: :http,
+    host: "localhost",
+    port: 4566,
+    region: "us-east-1",
+    access_key_id: "test",
+    secret_access_key: "test"
+  ]
+
   test "connect and make some requests" do
-    assert {:ok, conn} =
-             AWS.connect(
-               scheme: :http,
-               host: "localhost",
-               port: 4566,
-               region: "us-east-1",
-               access_key_id: "test",
-               secret_access_key: "test"
-             )
+    assert {:ok, conn} = AWS.connect(@localstack_kinesis)
 
     assert {:ok, conn, create_stream_response} =
              AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => "aws-api-test-stream"})
 
     on_exit(fn ->
-      {:ok, on_exit_conn} =
-        AWS.connect(
-          scheme: :http,
-          host: "localhost",
-          port: 4566,
-          region: "us-east-1",
-          access_key_id: "test",
-          secret_access_key: "test"
-        )
-
-      {:ok, _on_exit_conn, %{}} =
-        AWS.delete_stream(on_exit_conn, %{"StreamName" => "aws-api-test-stream"})
+      Xinesis.Test.with_conn(
+        @localstack_kinesis,
+        fn conn -> AWS.delete_stream(conn, %{"StreamName" => "aws-api-test-stream"}) end
+      )
     end)
 
     assert create_stream_response == %{}
