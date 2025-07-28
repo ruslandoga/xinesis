@@ -56,7 +56,7 @@ defmodule Xinesis.Processor do
     end
   end
 
-  def handle_event({:timeout, :reconnect}, failure_count, :disconnected, data) do
+  def handle_event({:timeout, :reconnect}, failure_count, :disconnected, _data) do
     {:keep_state_and_data, {:next_event, :internal, {:connect, failure_count}}}
   end
 
@@ -75,7 +75,7 @@ defmodule Xinesis.Processor do
         {:next_state, {:iterating, conn, shard_iterator}, data,
          {:next_event, :internal, :get_records}}
 
-      {:error, reason} ->
+      {:error, conn, reason} ->
         Logger.error("Failed to get shard iterator: #{Exception.message(reason)}")
 
         {:next_state, {:connected, conn}, data,
