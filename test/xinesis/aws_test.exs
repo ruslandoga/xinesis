@@ -22,18 +22,14 @@ defmodule Xinesis.AWSTest do
       AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
     end)
 
-    on_exit(fn ->
-      Xinesis.Test.with_conn(kinesis_config(), fn conn ->
-        AWS.delete_stream(conn, %{"StreamName" => stream})
-      end)
-    end)
+    on_exit(fn -> Xinesis.Test.delete_stream(kinesis_config(), stream) end)
+
+    Xinesis.Test.await_stream_status(kinesis_config(), stream, "ACTIVE")
 
     %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn}} =
       Xinesis.Test.with_conn(kinesis_config(), fn conn ->
         AWS.describe_stream_summary(conn, %{"StreamName" => stream})
       end)
-
-    Xinesis.Test.await_stream_active(kinesis_config(), stream_arn)
 
     {:ok, stream_arn: stream_arn}
   end

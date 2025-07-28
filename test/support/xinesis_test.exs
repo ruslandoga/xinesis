@@ -15,18 +15,50 @@ defmodule Xinesis.Test do
     end
   end
 
-  def await_stream_active(config, stream_arn) do
+  def await_stream_status(config, stream, status) do
     %{"StreamDescriptionSummary" => %{"StreamStatus" => stream_status}} =
       with_conn(config, fn conn ->
-        Xinesis.AWS.describe_stream_summary(conn, %{"StreamARN" => stream_arn})
+        Xinesis.AWS.describe_stream_summary(conn, %{"StreamName" => stream})
       end)
 
-    if stream_status == "ACTIVE" do
+    if stream_status == status do
       :ok
     else
-      Logger.debug("Waiting for stream #{stream_arn} to become active: #{stream_status} ...")
-      :timer.sleep(1000)
-      await_stream_active(config, stream_arn)
+      Logger.debug(
+        "Waiting for stream `#{stream}` to change status #{stream_status} -> #{status} ..."
+      )
+
+      :timer.sleep(500)
+      await_stream_status(config, stream, status)
+    end
+  end
+
+  def delete_stream(config, stream) do
+    with_conn(config, fn conn ->
+      Xinesis.AWS.delete_stream(conn, %{"StreamName" => stream})
+    end)
+
+    await_stream_deleted(config, stream)
+  end
+
+  defp await_stream_deleted(config, stream) do
+    :timer.sleep(500)
+
+    try do
+      with_conn(config, fn conn ->
+        Xinesis.AWS.describe_stream_summary(conn, %{"StreamName" => stream})
+      end)
+    rescue
+      e in Xinesis.AWS.Error ->
+        if e.type == "ResourceNotFoundException" do
+          :done
+        else
+          reraise(e, __STACKTRACE__)
+        end
+    else
+      _ ->
+        Logger.debug("Stream `#{stream}` still exists, waiting for deletion ...")
+        await_stream_deleted(config, stream)
     end
   end
 
