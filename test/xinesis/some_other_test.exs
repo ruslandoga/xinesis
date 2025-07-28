@@ -13,44 +13,26 @@ defmodule Xinesis.SomeOtherTest do
     secret_access_key: "test"
   ]
 
-  setup_all do
-    try do
-      Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
-        AWS.delete_stream(conn, %{"StreamName" => "some-other-test-stream"})
-      end)
-    rescue
-      _ -> :ok
-    end
+  setup do
+    stream = "some-other-test-stream-#{System.unique_integer([:positive])}"
+
+    # Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
+    #   AWS.delete_stream(conn, %{"StreamName" => stream})
+    # end)
 
     Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
-      AWS.create_stream(conn, %{
-        "ShardCount" => 1,
-        "StreamName" => "some-other-test-stream"
-      })
+      AWS.create_stream(conn, %{"ShardCount" => 4, "StreamName" => stream})
     end)
 
     on_exit(fn ->
       Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
-        AWS.delete_stream(conn, %{"StreamName" => "some-other-test-stream"})
+        AWS.delete_stream(conn, %{"StreamName" => stream})
       end)
     end)
 
-    %{
-      "StreamDescriptionSummary" => %{
-        "ConsumerCount" => 0,
-        "EncryptionType" => "NONE",
-        "EnhancedMonitoring" => [%{"ShardLevelMetrics" => []}],
-        "OpenShardCount" => 1,
-        "RetentionPeriodHours" => 24,
-        "StreamARN" => stream_arn,
-        "StreamCreationTimestamp" => _,
-        "StreamModeDetails" => %{"StreamMode" => "PROVISIONED"},
-        "StreamName" => "some-other-test-stream",
-        "StreamStatus" => "ACTIVE"
-      }
-    } =
+    %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn, "StreamStatus" => "ACTIVE"}} =
       Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
-        AWS.describe_stream_summary(conn, %{"StreamName" => "some-other-test-stream"})
+        AWS.describe_stream_summary(conn, %{"StreamName" => stream})
       end)
 
     {:ok, stream_arn: stream_arn}

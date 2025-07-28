@@ -14,30 +14,22 @@ defmodule Xinesis.LocalStackTest do
   ]
 
   setup do
-    stream = "aws-api-test-stream"
+    stream = "aws-api-test-stream-#{System.unique_integer([:positive])}"
 
-    Xinesis.Test.with_conn(
-      @localstack_kinesis,
-      fn conn -> AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream}) end
-    )
-
-    on_exit(fn ->
-      Xinesis.Test.with_conn(
-        @localstack_kinesis,
-        fn conn -> AWS.delete_stream(conn, %{"StreamName" => stream}) end
-      )
+    Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
+      AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
     end)
 
-    assert %{
-             "StreamDescriptionSummary" => %{
-               "StreamARN" => stream_arn,
-               "StreamStatus" => "ACTIVE"
-             }
-           } =
-             Xinesis.Test.with_conn(
-               @localstack_kinesis,
-               fn conn -> AWS.describe_stream_summary(conn, %{"StreamName" => stream}) end
-             )
+    on_exit(fn ->
+      Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
+        AWS.delete_stream(conn, %{"StreamName" => stream})
+      end)
+    end)
+
+    %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn, "StreamStatus" => "ACTIVE"}} =
+      Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
+        AWS.describe_stream_summary(conn, %{"StreamName" => stream})
+      end)
 
     {:ok, stream_arn: stream_arn}
   end
