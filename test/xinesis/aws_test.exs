@@ -15,97 +15,104 @@ defmodule Xinesis.AWSTest do
     ]
   end
 
-  test "connect and make some requests" do
-    assert {:ok, conn} = AWS.connect(kinesis_config())
-
+  setup_all do
     stream = "knock-elixir-ci-test-stream-api-test"
 
-    assert {:ok, conn, nil} =
-             AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
+    Xinesis.Test.with_conn(kinesis_config(), fn conn ->
+      AWS.create_stream(conn, %{"ShardCount" => 1, "StreamName" => stream})
+    end)
 
-    # on_exit(fn ->
-    #   Xinesis.Test.with_conn(
-    #     kinesis_config(),
-    #     fn conn -> AWS.delete_stream(conn, %{"StreamName" => stream}) end
-    #   )
-    # end)
+    on_exit(fn ->
+      Xinesis.Test.with_conn(kinesis_config(), fn conn ->
+        AWS.delete_stream(conn, %{"StreamName" => stream})
+      end)
+    end)
 
-    assert {:ok, conn, %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn}}} =
-             AWS.describe_stream_summary(conn, %{"StreamName" => stream})
+    %{"StreamDescriptionSummary" => %{"StreamARN" => stream_arn}} =
+      Xinesis.Test.with_conn(kinesis_config(), fn conn ->
+        AWS.describe_stream_summary(conn, %{"StreamName" => stream})
+      end)
 
     Xinesis.Test.await_stream_active(kinesis_config(), stream_arn)
 
-    assert {:ok, conn, describe_stream_summary_response} =
-             AWS.describe_stream_summary(conn, %{"StreamName" => stream})
+    {:ok, stream_arn: stream_arn}
+  end
 
-    assert %{
-             "StreamDescriptionSummary" => %{
-               "OpenShardCount" => 1,
-               "StreamName" => ^stream,
-               "ConsumerCount" => 0,
-               "EncryptionType" => "NONE",
-               "EnhancedMonitoring" => [%{"ShardLevelMetrics" => []}],
-               "RetentionPeriodHours" => 24,
-               "StreamARN" => stream_arn,
-               "StreamCreationTimestamp" => _,
-               "StreamModeDetails" => %{"StreamMode" => "PROVISIONED"},
-               "StreamStatus" => "ACTIVE"
-             }
-           } = describe_stream_summary_response
+  setup do
+    {:ok, conn} = AWS.connect(kinesis_config())
+    {:ok, conn: conn}
+  end
 
-    assert {:ok, conn, get_shard_iterator_response} =
+  test "PutRecord and GetRecords", %{conn: conn, stream_arn: stream_arn} do
+    assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
              AWS.get_shard_iterator(conn, %{
                "StreamARN" => stream_arn,
                "ShardId" => "shardId-000000000000",
                "ShardIteratorType" => "LATEST"
              })
 
-    assert %{"ShardIterator" => shard_iterator} = get_shard_iterator_response
-
-    assert {:ok, conn, get_records_response} =
-             AWS.get_records(conn, %{"ShardIterator" => shard_iterator})
-
-    assert %{
-             "MillisBehindLatest" => 0,
-             "NextShardIterator" => shard_iterator,
-             "Records" => []
-           } = get_records_response
-
-    assert {:ok, conn, put_record_response} =
+    assert {:ok, conn, %{"SequenceNumber" => sequence_number}} =
              AWS.put_record(conn, %{
                "StreamARN" => stream_arn,
                "Data" => "AA==",
                "PartitionKey" => "test-key"
              })
 
-    assert %{
-             "SequenceNumber" => sequence_number,
-             "ShardId" => "shardId-000000000000"
-           } = put_record_response
-
-    assert {:ok, conn, get_records_response} =
+    assert {:ok, conn,
+            %{
+              "MillisBehindLatest" => 0,
+              "NextShardIterator" => next_shard_iterator,
+              "Records" => [
+                %{
+                  "ApproximateArrivalTimestamp" => _,
+                  "Data" => "AA==",
+                  "PartitionKey" => "test-key",
+                  "SequenceNumber" => ^sequence_number
+                }
+              ]
+            }} =
              AWS.get_records(conn, %{"ShardIterator" => shard_iterator})
 
-    assert %{
-             "MillisBehindLatest" => 0,
-             "NextShardIterator" => next_shard_iterator,
-             "Records" => [
-               %{
-                 "ApproximateArrivalTimestamp" => _,
-                 "Data" => "AA==",
-                 "PartitionKey" => "test-key",
-                 "SequenceNumber" => ^sequence_number
-               }
-             ]
-           } = get_records_response
-
-    assert {:ok, _conn, get_records_response} =
+    assert {:ok, _conn,
+            %{
+              "MillisBehindLatest" => 0,
+              "NextShardIterator" => _next_shard_iterator,
+              "Records" => []
+            }} =
              AWS.get_records(conn, %{"ShardIterator" => next_shard_iterator})
+  end
 
-    assert %{
-             "MillisBehindLatest" => 0,
-             "NextShardIterator" => _next_shard_iterator,
-             "Records" => []
-           } = get_records_response
+  test "AFTER_SEQUENCE_NUMBER", %{conn: conn, stream_arn: stream_arn} do
+    assert {:ok, conn, %{"SequenceNumber" => sequence_number_1}} =
+             AWS.put_record(conn, %{
+               "StreamARN" => stream_arn,
+               "Data" => "AA==",
+               "PartitionKey" => "test-key-0"
+             })
+
+    assert {:ok, conn, %{"SequenceNumber" => _sequence_number_2}} =
+             AWS.put_record(conn, %{
+               "StreamARN" => stream_arn,
+               "Data" => "AQ==",
+               "PartitionKey" => "test-key-1"
+             })
+
+    assert {:ok, conn, %{"ShardIterator" => shard_iterator}} =
+             AWS.get_shard_iterator(conn, %{
+               "StreamARN" => stream_arn,
+               "ShardId" => "shardId-000000000000",
+               "ShardIteratorType" => "AFTER_SEQUENCE_NUMBER",
+               "StartingSequenceNumber" => sequence_number_1
+             })
+
+    assert {:ok, _conn,
+            %{
+              "MillisBehindLatest" => 0,
+              "NextShardIterator" => _next_shard_iterator,
+              "Records" => [
+                %{"Data" => "AQ==", "PartitionKey" => "test-key-1"}
+              ]
+            }} =
+             AWS.get_records(conn, %{"ShardIterator" => shard_iterator})
   end
 end
