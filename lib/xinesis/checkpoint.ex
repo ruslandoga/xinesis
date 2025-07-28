@@ -1,4 +1,6 @@
 defmodule Xinesis.Checkpoint do
+  # TODO fencing tokens
+
   @callback acquire_lease(stream_arn :: String.t(), shard_id :: String.t()) ::
               {:ok, sequence_number :: String.t()} | {:error, Exception.t()}
 
