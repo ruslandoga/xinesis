@@ -29,7 +29,8 @@ defmodule Xinesis.MixProject do
       {:nimble_options, "~> 1.0"},
       {:broadway, "~> 1.2"},
       {:aws, "~> 1.0", optional: true},
-      {:ex_aws_dynamo, "~> 4.2", optional: true}
+      {:ex_aws_dynamo, "~> 4.2", optional: true},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 end

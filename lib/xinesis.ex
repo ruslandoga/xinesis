@@ -12,15 +12,18 @@ defmodule Xinesis do
   def init(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
 
-    registry = Module.concat(name, Registry)
+    shard_registry = Module.concat(name, Registry)
     shard_supervisor = Module.concat(name, DynamicSupervisor)
     coordinator = Module.concat(name, Coordinator)
 
     children = [
-      {Registry, keys: :unique, name: registry},
+      {Registry, keys: :unique, name: shard_registry},
       {DynamicSupervisor, name: shard_supervisor, strategy: :one_for_one},
       {Xinesis.Coordinator,
-       name: coordinator, registry: registry, shard_supervisor: shard_supervisor, config: opts}
+       name: coordinator,
+       shard_registry: shard_registry,
+       shard_supervisor: shard_supervisor,
+       config: opts}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

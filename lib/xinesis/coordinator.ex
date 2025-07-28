@@ -22,7 +22,7 @@ defmodule Xinesis.Coordinator do
 
   @impl true
   def init(opts) do
-    registry = Keyword.fetch!(opts, :registry)
+    shard_registry = Keyword.fetch!(opts, :shard_registry)
     shard_supervisor = Keyword.fetch!(opts, :shard_supervisor)
     config = Keyword.fetch!(opts, :config)
 
@@ -50,7 +50,7 @@ defmodule Xinesis.Coordinator do
       stream_arn: stream_arn,
       backoff_base: backoff_base,
       backoff_max: backoff_max,
-      registry: registry,
+      shard_registry: shard_registry,
       shard_supervisor: shard_supervisor
     }
 
@@ -143,7 +143,7 @@ defmodule Xinesis.Coordinator do
 
   def handle_event(:internal, {:start_processors, shards}, {:active, conn}, data) do
     %{
-      registry: registry,
+      shard_registry: shard_registry,
       shard_supervisor: shard_supervisor,
       client: client,
       stream_arn: stream_arn,
@@ -155,7 +155,7 @@ defmodule Xinesis.Coordinator do
       DynamicSupervisor.start_child(
         shard_supervisor,
         {Xinesis.Processor,
-         name: {:via, Registry, {registry, shard_id}},
+         name: {:via, Registry, {shard_registry, shard_id}},
          client: client,
          stream_arn: stream_arn,
          shard_id: shard_id,
