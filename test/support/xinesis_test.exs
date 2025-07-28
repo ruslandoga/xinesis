@@ -68,12 +68,4 @@ defmodule Xinesis.Test do
   #         }
   #     ]
   # }
-
-  def ci_kinesis_prefix do
-    "knock-elixir-ci-test-stream-"
-  end
-
-  def ci_dynamodb_prefix do
-    "knock-elixir-ci-checkpoint-table-"
-  end
 end
