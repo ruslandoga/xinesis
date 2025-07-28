@@ -44,13 +44,15 @@ defmodule Xinesis.Processor do
     shard_id = Keyword.fetch!(opts, :shard_id)
     backoff_base = Keyword.fetch!(opts, :backoff_base)
     backoff_max = Keyword.fetch!(opts, :backoff_max)
+    processor = Keyword.fetch!(opts, :processor)
 
     data = %{
       client: client,
       stream_arn: stream_arn,
       shard_id: shard_id,
       backoff_base: backoff_base,
-      backoff_max: backoff_max
+      backoff_max: backoff_max,
+      processor: processor
     }
 
     {:ok, :disconnected, data, {:next_event, :internal, {:connect, 0}}}
@@ -109,16 +111,18 @@ defmodule Xinesis.Processor do
   end
 
   def handle_event(:internal, {:get_records, shard_iterator}, {:iterating, conn}, data) do
-    payload = %{
-      "ShardIterator" => shard_iterator,
-      # TODO make this configurable?
-      "Limit" => 100
-    }
+    %{shard_id: shard_id, processor: processor} = data
+
+    payload =
+      %{
+        "ShardIterator" => shard_iterator,
+        # TODO make this configurable?
+        "Limit" => 100
+      }
 
     case AWS.get_records(conn, payload) do
       {:ok, conn, response} ->
-        IO.inspect(response, label: "Received records")
-
+        processor.(shard_id, response["Records"])
         next_shard_iterator = response["NextShardIterator"]
 
         next =

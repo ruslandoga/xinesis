@@ -76,12 +76,29 @@ defmodule Xinesis.AWSTest do
              "ShardId" => "shardId-000000000000"
            } = put_record_response
 
-    assert {:ok, _conn, get_records_response} =
+    assert {:ok, conn, get_records_response} =
              AWS.get_records(conn, %{"ShardIterator" => shard_iterator})
 
     assert %{
              "MillisBehindLatest" => 0,
-             "NextShardIterator" => _shard_iterator,
+             "NextShardIterator" => next_shard_iterator,
+             "Records" => [
+               %{
+                 "ApproximateArrivalTimestamp" => _,
+                 "Data" => "testdata",
+                 "EncryptionType" => "NONE",
+                 "PartitionKey" => "test-key",
+                 "SequenceNumber" => ^sequence_number
+               }
+             ]
+           } = get_records_response
+
+    assert {:ok, _conn, get_records_response} =
+             AWS.get_records(conn, %{"ShardIterator" => next_shard_iterator})
+
+    assert %{
+             "MillisBehindLatest" => 0,
+             "NextShardIterator" => _next_shard_iterator,
              "Records" => [
                %{
                  "ApproximateArrivalTimestamp" => _,

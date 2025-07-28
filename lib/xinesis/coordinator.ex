@@ -65,6 +65,22 @@ defmodule Xinesis.Coordinator do
     backoff_base = Keyword.get(config, :backoff_base, 100)
     backoff_max = Keyword.get(config, :backoff_max, 5000)
 
+    processor = Keyword.fetch!(config, :processor)
+
+    # TODO that's not how it's end up working
+    if not is_function(processor, 2) do
+      raise ArgumentError, """
+      expected :processor option to be a function with arity 2
+
+      Example:
+
+          processor: fn shard_id, records ->
+            # process records
+          end
+
+      """
+    end
+
     data = %{
       client: [
         scheme: scheme,
@@ -78,7 +94,8 @@ defmodule Xinesis.Coordinator do
       backoff_base: backoff_base,
       backoff_max: backoff_max,
       shard_registry: shard_registry,
-      shard_supervisor: shard_supervisor
+      shard_supervisor: shard_supervisor,
+      processor: processor
     }
 
     {:ok, :disconnected, data, {:next_event, :internal, {:connect, 0}}}
@@ -179,7 +196,8 @@ defmodule Xinesis.Coordinator do
       client: client,
       stream_arn: stream_arn,
       backoff_base: backoff_base,
-      backoff_max: backoff_max
+      backoff_max: backoff_max,
+      processor: processor
     } = data
 
     for {shard_id, []} <- shards do
@@ -191,7 +209,8 @@ defmodule Xinesis.Coordinator do
          stream_arn: stream_arn,
          shard_id: shard_id,
          backoff_base: backoff_base,
-         backoff_max: backoff_max}
+         backoff_max: backoff_max,
+         processor: processor}
       )
     end
 

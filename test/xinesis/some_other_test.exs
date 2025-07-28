@@ -22,7 +22,7 @@ defmodule Xinesis.SomeOtherTest do
 
     Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
       AWS.create_stream(conn, %{
-        "ShardCount" => 4,
+        "ShardCount" => 1,
         "StreamName" => "some-other-test-stream"
       })
     end)
@@ -38,7 +38,7 @@ defmodule Xinesis.SomeOtherTest do
         "ConsumerCount" => 0,
         "EncryptionType" => "NONE",
         "EnhancedMonitoring" => [%{"ShardLevelMetrics" => []}],
-        "OpenShardCount" => 4,
+        "OpenShardCount" => 1,
         "RetentionPeriodHours" => 24,
         "StreamARN" => stream_arn,
         "StreamCreationTimestamp" => _,
@@ -55,6 +55,8 @@ defmodule Xinesis.SomeOtherTest do
   end
 
   test "it works", %{stream_arn: stream_arn} do
+    test = self()
+
     start_supervised!(
       {Xinesis,
        name: __MODULE__,
@@ -64,17 +66,32 @@ defmodule Xinesis.SomeOtherTest do
        port: 4566,
        region: "us-east-1",
        access_key_id: "test",
-       secret_access_key: "test"}
+       secret_access_key: "test",
+       processor: fn shard_id, records ->
+         send(test, {:records, shard_id, records})
+       end}
     )
 
     Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
       AWS.put_record(conn, %{
         "StreamARN" => stream_arn,
-        "Data" => "testdata",
+        "Data" => Base.encode64("some data and stuff"),
         "PartitionKey" => "test-key"
       })
     end)
 
-    :timer.sleep(:timer.seconds(10))
+    assert_receive {:records, "shardId-000000000000", records}
+
+    assert [
+             %{
+               "ApproximateArrivalTimestamp" => _,
+               "Data" => "c29tZSBkYXRhIGFuZCBzdHVmZg==",
+               "EncryptionType" => "NONE",
+               "PartitionKey" => "test-key",
+               "SequenceNumber" => _
+             }
+           ] = records
+
+    refute_receive _anything, 2000
   end
 end
