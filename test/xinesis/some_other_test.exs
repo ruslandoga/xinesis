@@ -12,6 +12,14 @@ defmodule Xinesis.SomeOtherTest do
   ]
 
   setup_all do
+    try do
+      Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
+        AWS.delete_stream(conn, %{"StreamName" => "some-other-test-stream"})
+      end)
+    rescue
+      _ -> :ok
+    end
+
     Xinesis.Test.with_conn(@localstack_kinesis, fn conn ->
       AWS.create_stream(conn, %{
         "ShardCount" => 4,

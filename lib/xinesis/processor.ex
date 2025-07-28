@@ -10,9 +10,26 @@ defmodule Xinesis.Processor do
     {gen_opts, opts} = Keyword.split(opts, [:debug, :trace, :hibernate_after])
 
     case name do
-      nil -> :gen_statem.start_link(__MODULE__, opts, gen_opts)
-      _ when is_atom(name) -> :gen_statem.start_link({:local, name}, __MODULE__, opts, gen_opts)
+      nil ->
+        :gen_statem.start_link(__MODULE__, opts, gen_opts)
+
+      _ when is_atom(name) ->
+        :gen_statem.start_link({:local, name}, __MODULE__, opts, gen_opts)
+
+      {:via, registry, _term} when is_atom(registry) ->
+        :gen_statem.start_link(name, __MODULE__, opts, gen_opts)
+
+      other ->
+        raise ArgumentError, "Invalid name: #{inspect(other)}"
     end
+  end
+
+  @doc false
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]}
+    }
   end
 
   @impl true
@@ -72,14 +89,14 @@ defmodule Xinesis.Processor do
 
     case AWS.get_shard_iterator(conn, payload) do
       {:ok, conn, %{"ShardIterator" => shard_iterator}} ->
-        {:next_state, {:iterating, conn, shard_iterator}, data,
-         {:next_event, :internal, :get_records}}
+        {:next_state, {:iterating, conn}, data,
+         {:next_event, :internal, {:get_records, shard_iterator}}}
 
       {:error, conn, reason} ->
         Logger.error("Failed to get shard iterator: #{Exception.message(reason)}")
 
         {:next_state, {:connected, conn}, data,
-         {{:timeout, :get_shard_iterator}, :timer.seconds(1)}}
+         {{:timeout, :get_shard_iterator}, :timer.seconds(1), nil}}
 
       {:disconnect, reason} ->
         Logger.error("Disconnected while getting shard iterator: #{Exception.message(reason)}")
@@ -91,7 +108,7 @@ defmodule Xinesis.Processor do
     {:keep_state_and_data, {:next_event, :internal, :get_shard_iterator}}
   end
 
-  def handle_event(:internal, :get_records, {:iterating, conn, shard_iterator}, data) do
+  def handle_event(:internal, {:get_records, shard_iterator}, {:iterating, conn}, data) do
     payload = %{
       "ShardIterator" => shard_iterator,
       # TODO make this configurable?
@@ -106,18 +123,18 @@ defmodule Xinesis.Processor do
 
         next =
           if next_shard_iterator do
-            {{:timeout, :get_records}, :timer.seconds(1)}
+            {{:timeout, :get_records}, :timer.seconds(1), next_shard_iterator}
           else
             {:next_event, :internal, :finish_shard}
           end
 
-        {:next_state, {:iterating, conn, next_shard_iterator}, data, next}
+        {:next_state, {:iterating, conn}, data, next}
 
       {:error, conn, reason} ->
         Logger.error("Failed to get records: #{Exception.message(reason)}")
 
-        {:next_state, {:iterating, conn, shard_iterator}, data,
-         {{:timeout, :get_records}, :timer.seconds(1)}}
+        {:next_state, {:iterating, conn}, data,
+         {{:timeout, :get_records}, :timer.seconds(1), shard_iterator}}
 
       {:disconnect, reason} ->
         Logger.error("Disconnected while getting records: #{Exception.message(reason)}")
@@ -125,7 +142,7 @@ defmodule Xinesis.Processor do
     end
   end
 
-  def handle_event({:timeout, :get_records}, _, {:iterating, _conn, shard_iterator}, _data) do
+  def handle_event({:timeout, :get_records}, shard_iterator, {:iterating, _conn}, _data) do
     {:keep_state_and_data, {:next_event, :internal, {:get_records, shard_iterator}}}
   end
 

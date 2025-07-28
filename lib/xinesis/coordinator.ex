@@ -10,8 +10,27 @@ defmodule Xinesis.Coordinator do
     {gen_opts, opts} = Keyword.split(opts, [:debug, :trace, :hibernate_after])
 
     case name do
-      nil -> :gen_statem.start_link(__MODULE__, opts, gen_opts)
-      _ when is_atom(name) -> :gen_statem.start_link({:local, name}, __MODULE__, opts, gen_opts)
+      nil ->
+        :gen_statem.start_link(__MODULE__, opts, gen_opts)
+
+      _ when is_atom(name) ->
+        :gen_statem.start_link({:local, name}, __MODULE__, opts, gen_opts)
+
+      {:global, _term} ->
+        :gen_statem.start_link(name, __MODULE__, opts, gen_opts)
+
+      {:via, registry, _term} when is_atom(registry) ->
+        :gen_statem.start_link(name, __MODULE__, opts, gen_opts)
+
+      other ->
+        raise ArgumentError, """
+        expected :name option to be one of the following:
+          * nil
+          * atom
+          * {:global, term}
+          * {:via, module, term}
+        Got: #{inspect(other)}
+        """
     end
   end
 
@@ -94,15 +113,19 @@ defmodule Xinesis.Coordinator do
         # CREATING | DELETING | ACTIVE | UPDATING
         # https://docs.aws.amazon.com/kinesis/latest/APIReference/API_StreamDescriptionSummary.html#Streams-Type-StreamDescriptionSummary-StreamStatus
         if stream_status == "ACTIVE" do
-          {:next_state, {:active, conn}, data, {:next_event, :internal, :list_shards}}
+          {:next_state, {:active, conn}, data, {:next_event, :internal, {:list_shards, 0}}}
         else
           Logger.info("Stream is not active yet: #{stream_status}")
-          {:next_state, {:connected, conn}, data, {{:timeout, :wait_stream}, :timer.seconds(1)}}
+
+          {:next_state, {:connected, conn}, data,
+           {{:timeout, :wait_stream}, :timer.seconds(1), nil}}
         end
 
       {:error, conn, reason} ->
         Logger.error("Failed to describe stream: #{Exception.message(reason)}")
-        {:next_state, {:connected, conn}, data, {{:timeout, :wait_stream}, :timer.seconds(1)}}
+
+        {:next_state, {:connected, conn}, data,
+         {{:timeout, :wait_stream}, :timer.seconds(1), nil}}
 
       {:disconnect, reason} ->
         Logger.error("Disconnected from AWS: #{Exception.message(reason)}")
